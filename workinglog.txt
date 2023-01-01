@@ -1,0 +1,14 @@
+2022-11-21
+1) Target basic functions
+  i) moving average crossing track
+  ii) aigen achi
+  iii) daily email alerts
+  iv) backtrack testing
+  
+2) Take online courses
+3) reading related articles
+  i) yfinance-guide https://algotrading101.com/learn/yfinance-guide/
+  ii) https://pypi.org/project/yfinance/
+  iii) Python for Finance, Part I: Yahoo & Google Finance API, pandas, and matplotlib https://www.learndatasci.com/tutorials/python-finance-part-yahoo-finance-api-pandas-matplotlib/
+  iv) Python for Financial Analysis and Algorithmic Trading https://www.udemy.com/course/python-for-finance-and-trading-algorithms/?LSNPUBID=OyHlmBp2G0c&ranEAID=OyHlmBp2G0c&ranMID=39197&ranSiteID=OyHlmBp2G0c-TVqH.EksuavTdXN17SQE_g&utm_medium=udemyads&utm_source=aff-campaign
+  v) 
