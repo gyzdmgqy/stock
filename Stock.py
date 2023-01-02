@@ -12,11 +12,13 @@ import matplotlib.pyplot as plt
 
 
 class StockRadar:
-    def __init__(self, watch_list):
+    def __init__(self, watch_list, backtrack_output):
         self.watch_list = watch_list
         self.data = None
         self.sma = None
         self.backtrack_list = []
+        self.transactions = []
+        self.backtrack_output = backtrack_output
         
     def __load_data(self):
         watch_list_string = " ".join(self.watch_list)
@@ -26,12 +28,12 @@ class StockRadar:
     def getMovingAverage(self):
         if not self.data:
             self.__load_data()
-        window_sizes = [5,10,20,30,50,100,200]
-        self.sma_tokens = ["SMA{}".format(window_size) for window_size in window_sizes]
+        self.sma_window_sizes = [5,10,20,30,50,100,200]
+        self.sma_tokens = ["SMA{}".format(window_size) for window_size in self.sma_window_sizes]
         #self.sma = self.data.loc[:,(["Close"],self.watch_list)]
         columns = pd.MultiIndex.from_product([self.sma_tokens, self.watch_list], names=['sma_type','token'])
         self.sma = pd.DataFrame(columns = columns)
-        for window_size in window_sizes:
+        for window_size in self.sma_window_sizes:
             sma_token = "SMA{}".format(window_size)
             for stock_token in self.watch_list:
                 stock_close_prices = self.data["Close"][stock_token].to_frame()
@@ -74,12 +76,12 @@ class StockRadar:
     def backtrack_sma(self):
         if self.sma is None:
             self.getMovingAverage()
-        transactions = []
         for stock_token in self.watch_list:
             close_prices = self.data["Close"][stock_token]
             initial_balance = 10000
             # SMA strategy
-            for sma_token in self.sma_tokens:
+            for window_size in self.sma_window_sizes:
+                sma_token = "SMA{}".format(window_size)
                 shares = 0
                 balance = 0
                 next_year = True
@@ -93,7 +95,15 @@ class StockRadar:
                     if next_year:
                         year = close_prices.index[row].year
                         next_year = False
-                        balance += initial_balance
+                        if window_size>=100 and close_today > sma_today:
+                            shares_to_buy = initial_balance/close_prices[row]
+                            shares += shares_to_buy
+                            balance = 0
+                            total_asset = shares*close_prices[row]+balance
+                            self.transactions.append([sma_token,stock_token,close_prices.index[row].year,'buy',shares_to_buy,close_today,
+                                                      balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])                    
+                        else:
+                            balance += initial_balance
                         year_start_asset = shares*close_prices[row] + balance
                     if close_today > sma_today and close_yesterday < sma_yesterday:
                         if balance > 0:
@@ -101,7 +111,8 @@ class StockRadar:
                             shares += shares_to_buy
                             total_asset = shares*close_today
                             balance = 0
-                            transactions.append("{4} {0} {5} buy {1:.1f} shares @price:{2:.2f} $ total assets {3:.2f} $".format(stock_token,shares_to_buy,close_today,total_asset,close_prices.index[row].strftime("%Y-%m-%d"),sma_token))                    
+                            self.transactions.append([sma_token,stock_token,close_prices.index[row].year,'buy',shares_to_buy,close_today,
+                                                      balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])                    
                     elif close_today < sma_today and close_yesterday > sma_yesterday:
                         if shares>0:
                             shares_to_sell = shares
@@ -109,11 +120,13 @@ class StockRadar:
                             shares =0
                             balance+=balance_credits
                             total_asset = balance
-                            transactions.append("{4} {0} {5} sell {1:.1f} shares @price:{2:.2f} $ total assets {3:.2f} $".format(stock_token,shares_to_sell,close_today,total_asset,close_prices.index[row].strftime("%Y-%m-%d"),sma_token))  
+                            self.transactions.append([sma_token,stock_token,close_prices.index[row].year,'sell',shares_to_sell,close_today,
+                                                      balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])  
                     if row == close_prices.shape[0]-1 or close_prices.index[row+1].year>year:
                         total_asset = shares*close_prices[row]+balance
                         performance = total_asset/year_start_asset - 1
-                        transactions.append("{0} {5} {6} final total assets: {3:.2f} $ performance: {4:.1%} {1:.1f} shares @price:{2:.2f} $".format(stock_token,shares,close_prices[-1],total_asset, performance,sma_token,year))  
+                        self.transactions.append([sma_token,stock_token,close_prices.index[row].year,'hold',shares,close_prices[row],
+                                                      balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])
                         self.backtrack_list.append([stock_token,sma_token,year,performance])   
                         next_year = True
         return
@@ -121,7 +134,6 @@ class StockRadar:
     def backtrack_all_in(self):
         sma_token = 'All_In'
         initial_balance = 10000
-        transactions = []
         for stock_token in self.watch_list:
             close_prices = self.data["Close"][stock_token]
             shares = 0
@@ -130,121 +142,67 @@ class StockRadar:
                 if shares == 0:
                     shares = balance/close_prices[row]
                     year = close_prices.index[row].year
-                    transactions.append("{4} {0} {5} buy {1:.1f} shares @price:{2:.2f} $ total assets {3:.2f} $"
-                                        .format(stock_token,shares,close_prices[row], balance,close_prices.index[row].strftime("%Y-%m-%d"),sma_token))                    
+                    self.transactions.append([sma_token,stock_token,close_prices.index[row].year,'buy',shares,close_prices[row],
+                                                      0,balance,close_prices.index[row].strftime("%Y-%m-%d")])
                     balance = 0
                 if row == close_prices.shape[0]-1 or close_prices.index[row+1].year>year:
                     total_asset = shares*close_prices[row]+balance
                     performance = total_asset/initial_balance - 1
-                    transactions.append("{0} {5} {6} final total assets: {3:.2f} $ performance: {4:.1%} {1:.1f} shares @price:{2:.2f} $".format(stock_token,shares,close_prices[row],total_asset, performance,sma_token,year))  
+                    self.transactions.append([sma_token,stock_token,close_prices.index[row].year,'hold',shares,close_prices[row],
+                                                      balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])
                     self.backtrack_list.append([stock_token,sma_token,year,performance])   
                     shares = 0
                     balance = initial_balance
         return
                 
     def backtrack_automatic(self):
-        sma_token = 'Automatic_Daily'
+        sma_tokens = [('Automatic_Daily',0),('Automatic_Monthly',12),('Automatic_Biweekly',24)]
         initial_balance = 10000
-        transactions = []
-        
-        for stock_token in self.watch_list:
-            close_prices = self.data["Close"][stock_token]
-            shares = 0
-            next_year = True
-            for row in range(close_prices.shape[0]):
-                if next_year:
-                    year = close_prices.index[row].year
-                    next_year = False
-                    ndays = len(close_prices[close_prices.index.year == year])
-                    balance = initial_balance
-                    periodic_invest_fund = initial_balance/ndays
-                    year_start_asset = shares*close_prices[row] + balance
-                new_shares=periodic_invest_fund/close_prices[row]
-                shares+=new_shares
-                balance-=periodic_invest_fund
-                transactions.append("{4} {0} {5} buy {1:.1f} shares @price:{2:.2f} $ total assets {3:.2f} $"
-                                    .format(stock_token,new_shares,close_prices[row], balance+shares*close_prices[row],close_prices.index[row].strftime("%Y-%m-%d"),sma_token))                    
-                if row == close_prices.shape[0]-1 or close_prices.index[row+1].year>year:
-                    total_asset = shares*close_prices[row]
-                    performance = total_asset/year_start_asset - 1
-                    transactions.append("{0} {5} {6} final total assets: {3:.2f} $ performance: {4:.1%} {1:.1f} shares @price:{2:.2f} $".format(stock_token,shares,close_prices[row],total_asset, performance,sma_token,year))  
-                    self.backtrack_list.append([stock_token,sma_token,year,performance])   
-                    next_year = True
-        sma_token = 'Automatic_Monthly'
-        for stock_token in self.watch_list:
-            close_prices = self.data["Close"][stock_token]
-            shares = 0
-            next_year = True
-            for row in range(close_prices.shape[0]):
-                if next_year:
-                    year = close_prices.index[row].year
-                    next_year = False
-                    ndays = len(close_prices[close_prices.index.year == year])
-                    month = 12
-                    period = ndays//month
-                    balance = initial_balance
-                    periodic_invest_fund = initial_balance/month
-                    year_start_asset = shares*close_prices[row] + balance
-                if row % period == 0 and balance*1.1>=periodic_invest_fund:
-                    new_shares=periodic_invest_fund/close_prices[row]
-                    shares+=new_shares
-                    balance-=periodic_invest_fund
-                    transactions.append("{4} {0} {5} buy {1:.1f} shares @price:{2:.2f} $ total assets {3:.2f} $"
-                                        .format(stock_token,new_shares,close_prices[row], balance+shares*close_prices[row],close_prices.index[row].strftime("%Y-%m-%d"),sma_token))                    
-                if row == close_prices.shape[0]-1 or close_prices.index[row+1].year>year:
-                    total_asset = shares*close_prices[row]
-                    performance = total_asset/year_start_asset - 1
-                    transactions.append("{0} {5} {6} final total assets: {3:.2f} $ performance: {4:.1%} {1:.1f} shares @price:{2:.2f} $".format(stock_token,shares,close_prices[row],total_asset, performance,sma_token,year))  
-                    self.backtrack_list.append([stock_token,sma_token,year,performance])   
-                    next_year = True
-        sma_token = 'Automatic_Biweekly'
-        for stock_token in self.watch_list:
-            close_prices = self.data["Close"][stock_token]
-            shares = 0
-            next_year = True
-            for row in range(close_prices.shape[0]):
-                if next_year:
-                    year = close_prices.index[row].year
-                    next_year = False
-                    ndays = len(close_prices[close_prices.index.year == year])
-                    n_biweekly = 24
-                    period = ndays//n_biweekly
-                    balance = initial_balance
-                    periodic_invest_fund = initial_balance/n_biweekly
-                    year_start_asset = shares*close_prices[row] + balance
-                if row % period == 0 and balance*1.1>=periodic_invest_fund:
-                    new_shares=periodic_invest_fund/close_prices[row]
-                    shares+=new_shares
-                    balance-=periodic_invest_fund
-                    transactions.append("{4} {0} {5} buy {1:.1f} shares @price:{2:.2f} $ total assets {3:.2f} $"
-                                        .format(stock_token,new_shares,close_prices[row], balance+shares*close_prices[row],close_prices.index[row].strftime("%Y-%m-%d"),sma_token))                    
-                if row == close_prices.shape[0]-1 or close_prices.index[row+1].year>year:
-                    total_asset = shares*close_prices[row]
-                    performance = total_asset/year_start_asset - 1
-                    transactions.append("{0} {5} {6} final total assets: {3:.2f} $ performance: {4:.1%} {1:.1f} shares @price:{2:.2f} $".format(stock_token,shares,close_prices[row],total_asset, performance,sma_token,year))  
-                    self.backtrack_list.append([stock_token,sma_token,year,performance])   
-                    next_year = True
+        for sma_token,frequency in sma_tokens:
+            for stock_token in self.watch_list:
+                close_prices = self.data["Close"][stock_token]
+                shares = 0
+                next_year = True
+                for row in range(close_prices.shape[0]):
+                    if next_year:
+                        year = close_prices.index[row].year
+                        next_year = False
+                        ndays = len(close_prices[close_prices.index.year == year])
+                        n_interval = ndays if frequency == 0 else frequency
+                        period = ndays//n_interval
+                        balance = initial_balance
+                        periodic_invest_fund = initial_balance/n_interval
+                        year_start_asset = shares*close_prices[row] + balance
+                    if row % period == 0 and balance*1.1>=periodic_invest_fund:
+                        new_shares=periodic_invest_fund/close_prices[row]
+                        shares+=new_shares
+                        balance-=periodic_invest_fund
+                        total_asset = shares*close_prices[row] + balance
+                        self.transactions.append([sma_token,stock_token,close_prices.index[row].year,'buy',new_shares,close_prices[row],
+                                                              balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])
+                    if row == close_prices.shape[0]-1 or close_prices.index[row+1].year>year:
+                        total_asset = shares*close_prices[row] + balance
+                        performance = total_asset/year_start_asset - 1
+                        self.transactions.append([sma_token,stock_token,close_prices.index[row].year,'hold',new_shares,close_prices[row],
+                                                          balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])
+                        self.backtrack_list.append([stock_token,sma_token,year,performance])   
+                        next_year = True
         return
     
     def backtrack(self):
-        stock_token = "SPY"
-        results = {}
-        initial_balance = 10000
         # SMA strategy
         self.backtrack_sma()
         # All in strategy
         self.backtrack_all_in()
         # Automatic Strategy
         self.backtrack_automatic()
-        period_invest_fund = initial_balance/12
-        idx =[i for i in range(4,close_prices.shape[0],int(close_prices.shape[0]/12+1))]
-        shares = sum(period_invest_fund/close_prices[idx])
-        total_asset = shares*close_prices[-1]
-        performance = total_asset/initial_balance - 1
-        results['Automatic_Monthly'] = "{0} final total assets: {3:.2f} $ performance: {4:.1%} {1:.1f} shares @price:{2:.2f} $".format(stock_token,shares,close_prices[-1],total_asset, performance)
-        
-       
-        return results
+        backtrack_df = pd.DataFrame(data=self.backtrack_list,columns = ['Stock','Strategy','Year','Performance'])
+        backtrack_df.to_csv(self.backtrack_output+'performance.csv')
+        transaction_df = pd.DataFrame(data=self.transactions,columns = ['Strategy','Stock','Year','Transaction','Shares','Price',
+                                                              'Balance','Total Asset','Date'])
+        transaction_df.to_csv(self.backtrack_output+'transaction.csv')
+
+        return
 
 
 
@@ -256,8 +214,8 @@ def main():
     #               "NIO","NTES","NVDA","PARA","PDD","PFSI","PINS","PYPL","QQQ",
     #               "SNAP","SPY","T","TAL","TCEHY","TME","TSLA","TWLO","U","UBER",
     #               "V","VRTX","VXX","VZ","WMT","ZM"]
-    sr = StockRadar(watch_list)
-    backtrack = sr.backtrack()
+    sr = StockRadar(watch_list,r"C:\\Dropbox\\Share for Gary\\Investment\\")
+    sr.backtrack()
     sma = sr.checkSMACrossing()
     
     
