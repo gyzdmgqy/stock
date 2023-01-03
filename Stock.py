@@ -10,20 +10,32 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
+import os
 
 
 class StockRadar:
-    def __init__(self, watch_list, backtrack_output):
+    def __init__(self, watch_list, backtrack_output, data_input, start_date):
         self.watch_list = watch_list
         self.data = None
         self.sma = None
         self.backtrack_list = []
         self.transactions = []
         self.backtrack_output = backtrack_output
+        self.data_input = data_input
+        self.start_date = start_date
+        print(os.getcwd())
         
     def __load_data(self):
         watch_list_string = " ".join(self.watch_list)
-        self.data = yf.download(watch_list_string, start="2020-01-01")
+        if self.data_input:
+            if os.path.exists(self.data_input):
+                self.data = pd.read_pickle(self.data_input)
+            else:
+                self.data = yf.download(watch_list_string, start=self.start_date)
+                self.data.to_pickle(self.data_input)
+        else:
+            self.data = yf.download(watch_list_string, start=self.start_date)
+            
         return
     
     def getMovingAverage(self):
@@ -247,7 +259,7 @@ def main():
                   "NIO","NTES","NVDA","PARA","PDD","PFSI","PINS","PYPL","QQQ",
                   "SNAP","SPY","T","TAL","TCEHY","TME","TSLA","TWLO","U","UBER",
                   "V","VRTX","VXX","VZ","WMT","ZM"]
-    sr = StockRadar(watch_list,r"C:\\Dropbox\\Share for Gary\\Investment\\")
+    sr = StockRadar(watch_list,r"C:\\Dropbox\\Share for Gary\\Investment\\",".\\data\\data2000.pkl","2000-01-01")
     sr.backtrack()
     #sma = sr.checkSMACrossing()
     
