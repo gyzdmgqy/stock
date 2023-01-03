@@ -9,6 +9,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from datetime import datetime
 
 
 class StockRadar:
@@ -22,7 +23,7 @@ class StockRadar:
         
     def __load_data(self):
         watch_list_string = " ".join(self.watch_list)
-        self.data = yf.download(watch_list_string, start="2000-01-01")
+        self.data = yf.download(watch_list_string, start="2020-01-01")
         return
     
     def getMovingAverage(self):
@@ -42,7 +43,7 @@ class StockRadar:
                 #self.sma.dropna(inplace=True)
         #self.sma.loc[:,(slice(None),['SPY'])].plot()
         #plt.show()
-        print("Moving Average Calculation Completed")
+        print("{0} Moving Average Calculation Completed".format(datetime.now().strftime("%H:%M:%S")))
         return self.sma
     
     def checkSMACrossing(self):
@@ -72,18 +73,20 @@ class StockRadar:
                     stock_crossing_tag.append("{} Failed Up Crossing {}".format(stock_token,sma_token))
                 elif low_today < sma_today and close_yesterday > sma_yesterday:
                     stock_crossing_tag.append("{} Failed Down Crossing {}".format(stock_token,sma_token))
-        print("SMA Crossing Checking Completed")
+        print("{0} SMA Crossing Checking Completed".format(datetime.now().strftime("%H:%M:%S")))
         return stock_crossing_tag
     
     def backtrack_sma(self):
         if self.sma is None:
             self.getMovingAverage()
+        print("{0} Start SMA Backtracking...".format(datetime.now().strftime("%H:%M:%S")))
         for stock_token in self.watch_list:
             close_prices = self.data["Close"][stock_token]
             initial_balance = 10000
             # SMA strategy
             for window_size in self.sma_window_sizes:
                 sma_token = "SMA{}".format(window_size)
+                print("Working on {1} Backtracking {0}".format(stock_token,sma_token))
                 shares = 0
                 balance = 0
                 next_year = True
@@ -131,13 +134,14 @@ class StockRadar:
                                                       balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])
                         self.backtrack_list.append([stock_token,sma_token,year,performance])   
                         next_year = True
-        print("Moving Average Backtrack Calculation Completed")
+        print("{0} Moving Average Backtrack Calculation Completed".format(datetime.now().strftime("%H:%M:%S")))
         return
     
     def backtrack_all_in(self):
         sma_token = 'All_In'
         initial_balance = 10000
         for stock_token in self.watch_list:
+            print("Working on {1} Backtracking {0}".format(stock_token,sma_token))
             close_prices = self.data["Close"][stock_token]
             shares = 0
             balance = initial_balance
@@ -156,7 +160,7 @@ class StockRadar:
                     self.backtrack_list.append([stock_token,sma_token,year,performance])   
                     shares = 0
                     balance = initial_balance
-        print("All In Backtrack Calculation Completed")
+        print("{0} All In Backtrack Calculation Completed".format(datetime.now().strftime("%H:%M:%S")))
         return
                 
     def backtrack_automatic(self):
@@ -164,6 +168,7 @@ class StockRadar:
         initial_balance = 10000
         for sma_token,frequency in sma_tokens:
             for stock_token in self.watch_list:
+                print("Working on {1} Backtracking {0}".format(stock_token,sma_token))
                 close_prices = self.data["Close"][stock_token]
                 shares = 0
                 next_year = True
@@ -191,7 +196,7 @@ class StockRadar:
                                                           balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])
                         self.backtrack_list.append([stock_token,sma_token,year,performance])   
                         next_year = True
-        print("Automatic Backtrack Calculation Completed")
+        print("{0} Automatic Backtrack Calculation Completed".format(datetime.now().strftime("%H:%M:%S")))
         return
     
     def backtrack(self):
@@ -206,24 +211,10 @@ class StockRadar:
         transaction_df = pd.DataFrame(data=self.transactions,columns = ['Strategy','Stock','Year','Transaction','Shares','Price',
                                                               'Balance','Total Asset','Date'])
         transaction_df.to_csv(self.backtrack_output+'transaction.csv')
-        print("Backtrack results wirting Completed")
+        print("{0} Backtrack results wirting Completed".format(datetime.now().strftime("%H:%M:%S")))
         return
 
-
-
-def main():
-    #watch_list=["SPY","AAPL"]
-    watch_list = ["AAPL","ADBE","AMD","AMZN","ARKK","ATVI","BABA","BIDU","BILI",
-                  "CRM","DIDIY","DIS","DOCU","EA","EDU","ENPH","FDX","GILD",
-                  "GOOG","HUYA","IAU","JD","JNJ","MA","META","MSFT","MU","NFLX",
-                  "NIO","NTES","NVDA","PARA","PDD","PFSI","PINS","PYPL","QQQ",
-                  "SNAP","SPY","T","TAL","TCEHY","TME","TSLA","TWLO","U","UBER",
-                  "V","VRTX","VXX","VZ","WMT","ZM"]
-    sr = StockRadar(watch_list,r"C:\\Dropbox\\Share for Gary\\Investment\\")
-    sr.backtrack()
-    sma = sr.checkSMACrossing()
-    
-    
+def main_old():
     data = yf.download("SPY AAPL", start="2017-01-01", end="2017-04-30")
     apple = data["Close"]["AAPL"]
     msft = yf.Ticker("MSFT")
@@ -246,6 +237,22 @@ def main():
     news = msft.news
     
     a = 0
+    return
+
+def main():
+    #watch_list=["SPY","AAPL"]
+    watch_list = ["AAPL","ADBE","AMD","AMZN","ARKK","ATVI","BABA","BIDU","BILI",
+                  "CRM","DIDIY","DIS","DOCU","EA","EDU","ENPH","FDX","GILD",
+                  "GOOG","HUYA","IAU","JD","JNJ","MA","META","MSFT","MU","NFLX",
+                  "NIO","NTES","NVDA","PARA","PDD","PFSI","PINS","PYPL","QQQ",
+                  "SNAP","SPY","T","TAL","TCEHY","TME","TSLA","TWLO","U","UBER",
+                  "V","VRTX","VXX","VZ","WMT","ZM"]
+    sr = StockRadar(watch_list,r"C:\\Dropbox\\Share for Gary\\Investment\\")
+    sr.backtrack()
+    #sma = sr.checkSMACrossing()
+    
+    
+  
     return
 
 
