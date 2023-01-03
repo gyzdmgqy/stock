@@ -22,7 +22,7 @@ class StockRadar:
         
     def __load_data(self):
         watch_list_string = " ".join(self.watch_list)
-        self.data = yf.download(watch_list_string, start="2020-01-01")
+        self.data = yf.download(watch_list_string, start="2000-01-01")
         return
     
     def getMovingAverage(self):
@@ -42,6 +42,7 @@ class StockRadar:
                 #self.sma.dropna(inplace=True)
         #self.sma.loc[:,(slice(None),['SPY'])].plot()
         #plt.show()
+        print("Moving Average Calculation Completed")
         return self.sma
     
     def checkSMACrossing(self):
@@ -71,6 +72,7 @@ class StockRadar:
                     stock_crossing_tag.append("{} Failed Up Crossing {}".format(stock_token,sma_token))
                 elif low_today < sma_today and close_yesterday > sma_yesterday:
                     stock_crossing_tag.append("{} Failed Down Crossing {}".format(stock_token,sma_token))
+        print("SMA Crossing Checking Completed")
         return stock_crossing_tag
     
     def backtrack_sma(self):
@@ -129,6 +131,7 @@ class StockRadar:
                                                       balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])
                         self.backtrack_list.append([stock_token,sma_token,year,performance])   
                         next_year = True
+        print("Moving Average Backtrack Calculation Completed")
         return
     
     def backtrack_all_in(self):
@@ -153,6 +156,7 @@ class StockRadar:
                     self.backtrack_list.append([stock_token,sma_token,year,performance])   
                     shares = 0
                     balance = initial_balance
+        print("All In Backtrack Calculation Completed")
         return
                 
     def backtrack_automatic(self):
@@ -187,6 +191,7 @@ class StockRadar:
                                                           balance,total_asset,close_prices.index[row].strftime("%Y-%m-%d")])
                         self.backtrack_list.append([stock_token,sma_token,year,performance])   
                         next_year = True
+        print("Automatic Backtrack Calculation Completed")
         return
     
     def backtrack(self):
@@ -201,19 +206,19 @@ class StockRadar:
         transaction_df = pd.DataFrame(data=self.transactions,columns = ['Strategy','Stock','Year','Transaction','Shares','Price',
                                                               'Balance','Total Asset','Date'])
         transaction_df.to_csv(self.backtrack_output+'transaction.csv')
-
+        print("Backtrack results wirting Completed")
         return
 
 
 
 def main():
-    watch_list=["SPY","AAPL"]
-    # watch_list = ["AAPL","ADBE","AMD","AMZN","ARKK","ATVI","BABA","BIDU","BILI",
-    #               "CRM","DIDIY","DIS","DOCU","EA","EDU","ENPH","FDX","GILD",
-    #               "GOOG","HUYA","IAU","JD","JNJ","MA","META","MSFT","MU","NFLX",
-    #               "NIO","NTES","NVDA","PARA","PDD","PFSI","PINS","PYPL","QQQ",
-    #               "SNAP","SPY","T","TAL","TCEHY","TME","TSLA","TWLO","U","UBER",
-    #               "V","VRTX","VXX","VZ","WMT","ZM"]
+    #watch_list=["SPY","AAPL"]
+    watch_list = ["AAPL","ADBE","AMD","AMZN","ARKK","ATVI","BABA","BIDU","BILI",
+                  "CRM","DIDIY","DIS","DOCU","EA","EDU","ENPH","FDX","GILD",
+                  "GOOG","HUYA","IAU","JD","JNJ","MA","META","MSFT","MU","NFLX",
+                  "NIO","NTES","NVDA","PARA","PDD","PFSI","PINS","PYPL","QQQ",
+                  "SNAP","SPY","T","TAL","TCEHY","TME","TSLA","TWLO","U","UBER",
+                  "V","VRTX","VXX","VZ","WMT","ZM"]
     sr = StockRadar(watch_list,r"C:\\Dropbox\\Share for Gary\\Investment\\")
     sr.backtrack()
     sma = sr.checkSMACrossing()
