@@ -157,6 +157,8 @@ class StockRadar:
             shares = 0
             balance = initial_balance
             for row in range(close_prices.shape[0]):
+                if pd.isna(close_prices[row]):
+                        continue
                 if shares == 0:
                     shares = balance/close_prices[row]
                     year = close_prices.index[row].year
