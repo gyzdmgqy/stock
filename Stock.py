@@ -23,6 +23,7 @@ class StockRadar:
         self.backtrack_output = backtrack_output
         self.data_input = data_input
         self.start_date = start_date
+        self.__load_data()
         print(os.getcwd())
         
     def __load_data(self):
@@ -35,12 +36,10 @@ class StockRadar:
                 self.data.to_pickle(self.data_input)
         else:
             self.data = yf.download(watch_list_string, start=self.start_date)
-            
+        #self.data.to_csv(self.backtrack_output+'data.csv')    
         return
     
     def getMovingAverage(self):
-        if not self.data:
-            self.__load_data()
         self.sma_window_sizes = [5,10,20,30,50,100,200]
         self.sma_tokens = ["SMA{}".format(window_size) for window_size in self.sma_window_sizes]
         #self.sma = self.data.loc[:,(["Close"],self.watch_list)]
@@ -185,6 +184,8 @@ class StockRadar:
                 shares = 0
                 next_year = True
                 for row in range(close_prices.shape[0]):
+                    if pd.isna(close_prices[row]):
+                        continue
                     if next_year:
                         year = close_prices.index[row].year
                         next_year = False
@@ -212,12 +213,12 @@ class StockRadar:
         return
     
     def backtrack(self):
+        # Automatic Strategy
+        self.backtrack_automatic()
         # SMA strategy
         self.backtrack_sma()
         # All in strategy
         self.backtrack_all_in()
-        # Automatic Strategy
-        self.backtrack_automatic()
         backtrack_df = pd.DataFrame(data=self.backtrack_list,columns = ['Stock','Strategy','Year','Performance'])
         backtrack_df.to_csv(self.backtrack_output+'performance.csv')
         transaction_df = pd.DataFrame(data=self.transactions,columns = ['Strategy','Stock','Year','Transaction','Shares','Price',
