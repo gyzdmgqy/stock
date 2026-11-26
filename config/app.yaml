@@ -1,0 +1,8 @@
+app:
+  name: personal-cio-system
+  environment: local
+  timezone: America/Chicago
+  base_currency: USD
+  report_format:
+    - markdown
+    - json

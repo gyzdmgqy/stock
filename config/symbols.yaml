@@ -1,0 +1,16 @@
+core_index:
+  - VOO
+  - QQQ
+  - SPY
+
+active_watchlist:
+  - MSFT
+  - AAPL
+  - NVDA
+  - GOOGL
+  - AMZN
+  - META
+  - VRTX
+  - COST
+  - AVGO
+  - LLY

@@ -1,0 +1,20 @@
+accounts:
+  VANGUARD_ROTH:
+    broker: VANGUARD
+    account_type: ROTH_IRA
+    # Phase 0 沿用现有枚举。VOO 和 QQQ 的择时策略将在规划设计中定义。
+    account_role: CORE_PASSIVE
+    individual_stock_policy: EXIT_ONLY
+    order_draft_enabled: false
+    api_sync_enabled: false
+    csv_import_enabled: true
+    default_replacement: null
+
+  SCHWAB_ROTH:
+    broker: SCHWAB
+    account_type: ROTH_IRA
+    account_role: ACTIVE_TRADING
+    individual_stock_policy: ACTIVE_ALLOWED
+    order_draft_enabled: true
+    api_sync_enabled: false
+    csv_import_enabled: true

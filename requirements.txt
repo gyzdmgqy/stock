@@ -1,0 +1,19 @@
+# MVP 运行依赖
+pandas
+numpy
+duckdb
+pydantic>=2,<3
+PyYAML
+python-dotenv
+requests
+yfinance
+ta
+Jinja2
+streamlit
+plotly
+tzdata
+
+# 测试、格式化和静态检查
+pytest
+black
+ruff

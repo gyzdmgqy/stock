@@ -1,0 +1,12 @@
+brokers:
+  schwab:
+    enabled: true
+    mode: read_only
+    order_submission_enabled: false
+    order_draft_enabled: true
+
+  vanguard:
+    enabled: true
+    mode: csv_only
+    order_submission_enabled: false
+    order_draft_enabled: false

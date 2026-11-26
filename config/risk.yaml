@@ -1,0 +1,7 @@
+risk:
+  max_single_stock_weight: 0.08
+  max_new_trade_weight: 0.03
+  max_trade_risk_percent: 0.005
+  min_risk_reward_ratio: 2.0
+  block_new_entry_before_earnings_days: 5
+  min_entry_confidence_for_order_draft: 70

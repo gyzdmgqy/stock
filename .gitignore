@@ -1,3 +1,24 @@
 *.pkl
 .codex-analysis/
-outputs/
+
+# Python 开发环境
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# 本地凭据和运行数据
+.env
+.env.*
+!.env.example
+*.duckdb
+*.duckdb.*
+*.wal
+/data/
+/logs/
+/outputs/
+/imports/
+/backup/
