@@ -76,6 +76,7 @@ exact reviewed order in approval_record.approved_payload for audit comparison.
 | entry_order.type / entry_order.price | trade_plan.entry_order_type / entry_price |
 | stop_order.type / stop_price / limit_price / condition / reason | stop_type / stop_price / stop_limit_price / stop_condition / stop_reason |
 | position_size.percent_of_portfolio / estimated_value / quantity | position_size_percent / position_size_value / quantity |
+| position_size.sizing_basis / sizing_base_value | sizing_basis / sizing_base_value |
 | entry_condition / invalid_condition / exit_trigger | JSON arrays in the corresponding columns |
 | replacement | JSON object mapping symbol to allocation fraction |
 | DailyCioBrief structured summaries | Corresponding JSON summary columns |
@@ -1074,7 +1075,7 @@ shared/models/
 ├── signals.py
 ├── portfolio.py
 ├── trade_plan.py
-├── order_draft.py
+├── order.py
 ├── journal.py
 └── brief.py
 ```
@@ -1086,6 +1087,11 @@ future_reentry_account. Order prices and quantities use Decimal in Python and
 DECIMAL in SQL; indicator calculations may use floating point.
 DailyCioBrief exports are assembled from stored summary sections; there is no
 second writable json_payload copy.
+
+Phase 1 的订单快照显式记录券商、账户、标的、买卖方向、类型、数量、价格、
+有效期和交易时段。草稿可使用 `DAY` 和 `NORMAL` 默认值，生成审批快照时会
+写出实际值。审批记录的数量和价格字段从快照派生，传入不一致的值会校验失败。
+跨记录查询最新审批、确认成交和保存数据由后续阶段负责。
 
 ---
 

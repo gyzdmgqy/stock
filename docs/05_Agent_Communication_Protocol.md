@@ -513,6 +513,7 @@ For Vanguard individual stocks, the system should generate Exit Plans rather tha
 ```json
 {
   "plan_id": "TP-20260607-VANGUARD-VRTX-EXIT-001",
+  "plan_date": "2026-06-07",
   "account_id": "VANGUARD_ROTH",
   "account_role": "CORE_PASSIVE",
   "symbol": "VRTX",
@@ -567,8 +568,8 @@ Use OrderDraftStatus and its transition table from doc 04.
 
 # 16. Approval Decision Schema
 
-Generated after user review. Scalar approved_* fields below are abbreviated;
-the complete stored approval also captures approved_payload as defined in doc 04.
+批准记录必须包含完整的 `approved_payload` 快照。提交前校验草稿 ID、计划 ID
+和全部订单参数。数量和价格字段可从快照派生，显式提供时必须一致。
 
 ```json
 {
@@ -580,6 +581,20 @@ the complete stored approval also captures approved_payload as defined in doc 04
   "approved_quantity": 10,
   "approved_limit_price": 462.0,
   "approved_stop_price": null,
+  "approved_stop_limit_price": null,
+  "approved_payload": {
+    "broker": "SCHWAB",
+    "account_id": "SCHWAB_ROTH",
+    "symbol": "VRTX",
+    "instruction": "BUY",
+    "order_type": "LIMIT",
+    "quantity": 10,
+    "limit_price": 462.0,
+    "stop_price": null,
+    "stop_limit_price": null,
+    "time_in_force": "DAY",
+    "session": "NORMAL"
+  },
   "decided_at": "2026-06-07T22:05:00Z"
 }
 ```
