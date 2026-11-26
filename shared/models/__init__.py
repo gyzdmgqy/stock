@@ -1,4 +1,5 @@
 from .brief import DailyCioBrief
+from .indicators import DailyIndicator
 from .journal import JournalEntry
 from .market import DailyPrice, IntradayPrice
 from .order import ApprovalDecision, OrderDraft, OrderSnapshot
@@ -10,6 +11,7 @@ __all__ = [
     "ApprovalDecision",
     "BrokerTransaction",
     "DailyCioBrief",
+    "DailyIndicator",
     "DailyPrice",
     "DailySignal",
     "IntradayPrice",

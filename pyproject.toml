@@ -9,7 +9,7 @@ testpaths = [
     "personal-cio-agent/tests",
     "investment-journal/tests",
 ]
-pythonpath = [".", "market-data-service/src"]
+pythonpath = [".", "market-data-service/src", "analysis-engine/src"]
 
 [tool.black]
 target-version = ["py312"]
@@ -19,7 +19,7 @@ extend-exclude = '^/deprecated/'
 [tool.ruff]
 target-version = "py312"
 line-length = 88
-src = [".", "market-data-service/src"]
+src = [".", "market-data-service/src", "analysis-engine/src"]
 extend-exclude = ["deprecated"]
 
 [tool.ruff.lint]

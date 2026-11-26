@@ -545,6 +545,10 @@ ADD or WATCH
 
 ## 9.2 False Breakdown Re-entry
 
+Phase 4 的假跌破评分要求最低价跌破前一交易日的 MA200、收盘收复、
+下影线达到阈值且无恐慌量。分析层给出 `WATCH`，后续规划层仍需满足
+各自的行情、账户、风险和小时线确认条件。详见[分析引擎规则](../analysis-engine/README.md)。
+
 Conditions may include:
 
 - Intraday break below MA200

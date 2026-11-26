@@ -69,12 +69,18 @@ Recommended additions and semantics:
 These lifecycle refinements are reviewable design recommendations. No trading
 implementation has started.
 
+## 已确认的 Phase 4 规则
+
+- MA200 附近区间为 ±1%，长下影线下限为全天振幅的 40%，接近最高为全天区间的顶部 25%。
+- 当日成交量达到此前五日均量的 2 倍时达到恐慌量阈值。
+- 相同输入生成同一信号 ID，行情更正后生成新版本并保留旧记录。
+
 ## Remaining Product Decisions
 
 | Decision | Recommendation / question | Needed before |
 |---|---|---|
 | Protective exit details | Separate rules are confirmed. Agree exact triggers, thresholds, freshness, and reduction quantities; do not use an arbitrary lower confidence cutoff. | Phase 5 |
-| Strategy definitions | Agree exact thresholds, score weights, and indicator warm-up. Required hourly confirmation cannot fall back to daily-only action. Current "may include" rules do not define deterministic behavior. | Phase 4-5 |
+| 交易策略定义 | 细化行动触发、置信度和风险评分。需要小时线确认的计划继续保持 `WATCH`，直到条件满足。 | Phase 5 |
 | Event and freshness inputs | Which earnings/event source or manual calendar is available? Recommend blocking new-entry drafts when required event, price, position, or cash data is missing/stale; define maximum ages. | Phase 3-5 |
 | Outcome measurement | Separate plan forward returns from realized execution returns. Agree reference price, costs, dividends/splits, partial fills, and benchmark/horizon conventions. | Phase 6 |
 | Vanguard migration | Allocation is undecided. Explain replacement of legacy-stock sale proceeds versus a whole-account target; agree assets, weights, observation period, and timing. 70/30 and 60/40 are examples, not defaults. | Phase 5 |

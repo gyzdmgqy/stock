@@ -114,6 +114,10 @@ Phase 3 的日线下载在起止交易日闭区间返回 `DailyPrice` 列表。
 
 ## 6.2 analysis-engine
 
+Phase 4 从指定交易日和此前的 OHLCV 生成 `DailySignal`。预热不足的指标或规则
+保留空值，缺少目标交易日日线时返回 `DATA_MISSING`。首版提供观察提示
+`WATCH` 和独立的形态评分，规则明细与信号一同写入。
+
 Produces:
 
 - DAILY_INDICATOR
