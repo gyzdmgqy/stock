@@ -742,6 +742,9 @@ ON trade_plan(plan_date, symbol);
 
 ## 9.2 trade_plan_signal_link
 
+Phase 5 在同一事务写入计划及其日线信号关联。同一账户、标的和计划日的输入
+发生变化时保留旧计划，并在新计划中记录 `supersedes_plan_id`。
+
 Links trade plans to underlying signals.
 
 ```sql

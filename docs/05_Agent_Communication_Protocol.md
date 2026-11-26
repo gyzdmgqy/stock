@@ -134,6 +134,10 @@ Consumes:
 
 ## 6.3 trade-planner
 
+Phase 5 生成带失效条件的 `TradePlan`，通过各动作门槛时可附带限价订单意图。
+缺少已完成且仍有效的一小时确认时，要求该确认的入场计划保持 `WATCH`。
+订单意图供券商网关在后续阶段校验并生成草稿。
+
 Produces:
 
 - TRADE_PLAN

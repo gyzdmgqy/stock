@@ -5,6 +5,9 @@
 
 # 1. Purpose
 
+Phase 5 的实际规则、输入字段和初始参数集中记录在
+[交易规划实现说明](../trade-planner/README.md)。
+
 This document defines the design of the **Trade Planner** module for the Personal CIO System.
 
 The Trade Planner is the core decision-planning module of the system.
@@ -477,6 +480,11 @@ if account_role == "CORE_PASSIVE":
 
 ## 8.3 Entry Confidence and Protective Exit Gates
 
+首版假跌破入场在置信度缺失时取两项形态评分的较低值，评分任一缺失时继续观察。
+`EXIT` 使用连续两个已收盘交易日低于各自 MA200 的触发，而 `REDUCE` 以账户
+单股市值超限为触发。两者独立于入场置信度、小时线及财报禁入条件，并校验持仓时效、
+可卖股数和未完成订单状态。
+
 The following confidence bands apply only to ADD / RE_ENTRY:
 
 ```text
@@ -499,8 +507,7 @@ Protective REDUCE / EXIT plans do not inherit the 70-point entry threshold.
 Their rules must establish a specific exit/risk-reduction trigger, a held
 position, valid sell quantity, and action-appropriate risk checks. Account
 restrictions, price/position freshness, draft validation, and human approval
-still apply. Exact exit triggers and thresholds are pending agreement; low
-entry confidence alone neither blocks an exit nor justifies a sale.
+still apply. 首版退出触发和减仓口径见本节上方，其他保护性策略后续单独确认。
 
 ## 8.4 Event Risk Gate
 
@@ -774,6 +781,9 @@ For MVP, use fixed risk percentage and confidence score.
 ---
 
 # 14. Risk Controls
+
+组合单股 8% 和同板块 25% 是首版可配置上限。计算账户可买股数后，
+按拟议成交金额另查两项组合敞口。组合数据缺失或超限时输出 `WATCH`。
 
 Trade Planner must check:
 
