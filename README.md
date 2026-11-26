@@ -1,6 +1,6 @@
 # Personal CIO System
 
-个人投资决策辅助系统。项目采用本地优先的 Python 单仓库，由行情服务、分析引擎、交易规划、券商网关、CIO 简报和投资日志组成。当前为 Phase 0，提供目录、配置样例和开发工具。
+个人投资决策辅助系统。项目采用本地优先的 Python 单仓库，由行情服务、分析引擎、交易规划、券商网关、CIO 简报和投资日志组成。当前已实现仓库基础、共享模型和 DuckDB 初始化。
 
 ## 本地启动
 
@@ -10,6 +10,7 @@
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe scripts/init_workspace.py
+.\.venv\Scripts\python.exe scripts/init_db.py
 .\.venv\Scripts\python.exe -m pytest
 ```
 
@@ -19,10 +20,15 @@ macOS 和 Linux 使用以下命令。
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python scripts/init_workspace.py
+.venv/bin/python scripts/init_db.py
 .venv/bin/python -m pytest
 ```
 
 初始化脚本可重复执行，会创建本地数据、券商导入、报告、日志和备份目录，保留其中已有文件。基础测试无需 `.env` 或券商凭据。样例配置使用 `America/Chicago`，默认关闭券商 API 同步和订单提交。
+
+数据库默认位于 `data/db/personal_cio.duckdb`。可使用 `init_db.py --db-path <路径>`
+指定其他文件。初始化会执行尚未应用的迁移、补齐缺失的种子记录，并保留已有记录。
+数据库测试使用临时文件。
 
 ## 开发约定
 

@@ -14,10 +14,10 @@
 - REDUCE / EXIT has separate protective-exit eligibility, independent of the 70-point entry-confidence threshold. Exact triggers remain to be specified.
 - Plans requiring hourly confirmation remain WATCH with no draft until required confirmations are satisfied; no daily-only fallback or conditional-draft bypass.
 
-## Storage Recommendation for Review
+## 已确认的存储设计
 
-The schema in doc 04 implements a proposed relational core plus JSON mapping.
-This is pending user review, not recorded as an already approved preference.
+Phase 2 已确认采用关系字段与 JSON 的组合。金额、价格和数量使用定点列，
+条件列表和来源引用保存在 JSON 列中，Python 继续使用嵌套交易计划模型。
 
 For example, a message may contain:
 
@@ -37,10 +37,8 @@ Three possible storage designs:
 | Normalized child tables | plan_order(plan_id, role, type, price); plan_condition(plan_id, sequence, rule) | Strong relational links and repeatable children; more joins and mappings |
 | Flat model and table | entry_order_type=LIMIT, entry_price=462; one column per fixed attribute | Simple filtering; variable conditions/allocations do not fit well into fixed columns |
 
-Recommendation: preserve the nested service model, store fixed actionable fields
-in relational columns, and keep variable arrays/objects in JSON. For example,
-entry_price is a DECIMAL column, entry_condition is a JSON array, and replacement
-is a JSON object. Existing link tables such as trade_plan_signal_link stay relational.
+例如，`entry_price` 使用 `DECIMAL` 列，`entry_condition` 使用 JSON 数组，
+`replacement` 使用 JSON 对象。`trade_plan_signal_link` 等关联记录仍使用关系表。
 
 Trade plans need filterable account, action, status, prices and sizing. Briefs
 benefit from structured JSON sections. Order drafts need explicit executable
@@ -75,7 +73,6 @@ implementation has started.
 
 | Decision | Recommendation / question | Needed before |
 |---|---|---|
-| Storage mapping | Adopt the proposed relational core plus JSON mapping? | Phase 1-2 |
 | Protective exit details | Separate rules are confirmed. Agree exact triggers, thresholds, freshness, and reduction quantities; do not use an arbitrary lower confidence cutoff. | Phase 5 |
 | Strategy definitions | Agree exact thresholds, score weights, and indicator warm-up. Required hourly confirmation cannot fall back to daily-only action. Current "may include" rules do not define deterministic behavior. | Phase 4-5 |
 | Event and freshness inputs | Which earnings/event source or manual calendar is available? Recommend blocking new-entry drafts when required event, price, position, or cash data is missing/stale; define maximum ages. | Phase 3-5 |

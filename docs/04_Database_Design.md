@@ -11,9 +11,9 @@ documents describe behavior or message examples and must reference this schema.
 The build order is owned by [doc 10](10_TDD_Development_Plan_and_Codex_Prompts.md).
 
 Confirmed: DuckDB-only MVP and the richer journal fields originally in doc 08.
-The relational-core-plus-JSON mapping below is the recommended design baseline,
-pending the user's storage-design review. It is a concrete proposal, not a
-previously approved storage decision. See [design decisions](11_Design_Alignment_and_Open_Decisions.md).
+Phase 2 确认采用关系字段与 JSON 的混合存储。定点价格和数量保存在关系列中，
+可变条件和来源引用使用 JSON，Python 继续使用嵌套模型。
+详见[设计决策](11_Design_Alignment_and_Open_Decisions.md)。
 
 The MVP database uses **DuckDB only**.
 
@@ -696,8 +696,8 @@ CREATE TABLE IF NOT EXISTS trade_plan (
     stop_condition TEXT,
     stop_reason TEXT,
 
-    target_price_1 DOUBLE,
-    target_price_2 DOUBLE,
+    target_price_1 DECIMAL(20, 6),
+    target_price_2 DECIMAL(20, 6),
 
     position_size_percent DOUBLE,
     position_size_value DECIMAL(20, 6),
@@ -1277,6 +1277,24 @@ JRN-20260530-VRTX-001
 ---
 
 # 17. MVP Database Initialization
+
+Phase 2 的初始化命令为 `python scripts/init_db.py`。使用 `--db-path` 可以指定
+其他数据库文件，无需配置 `.env`。连接以 UTC 读写带时区的时间戳，应用时区继续
+使用 `America/Chicago`。初始化按默认标的和观察列表补齐缺失记录，并从
+`config/accounts.yaml` 和 `config/symbols.yaml` 读取账户和观察列表成员。
+同 ID 的已有种子、计划、审批和日志保留原值。
+
+`shared/db/migrations/` 中的 SQL 按 `0001_名称.sql` 连续编号。
+`_schema_migrations` 记录已执行版本、文件名、SHA-256 校验值和执行时间。
+后续变更应新增迁移文件并同步更新本文档。初始化使用一个事务执行迁移和种子
+写入，失败时一起回滚。数据库缺少迁移记录但已有对象、版本更高或已执行文件被
+改动时，初始化会停止。
+
+交易计划和日志的仓储提供按 ID 的插入和读取。写入前校验模型、关联记录和账户
+一致性，重复 ID 由主键拒绝。显式关联字段用于检查记录一致性，
+`input_references` 作为结构化来源说明保存。省略 `created_at` 时由数据库生成，
+缺失的仓位对象以空列保存，显式仓位对象保留其 `ACCOUNT` 分母。
+仓储函数使用调用方提供的连接，涉及多条写入的业务操作由调用方统一管理事务。
 
 Create script:
 
