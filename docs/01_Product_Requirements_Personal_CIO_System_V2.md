@@ -56,9 +56,9 @@ analysis-engine
 ↓
 trade-planner
 ↓
-personal-cio-agent
+broker-gateway
 ↓
-broker-gateway-schwab
+personal-cio-agent
 ↓
 investment-journal
 
@@ -75,8 +75,8 @@ investment-journal
 ### 3. trade-planner
 生成高质量交易计划
 
-### 4. broker-gateway-schwab
-连接 Schwab API，生成订单草稿
+### 4. broker-gateway
+统一 Schwab / Vanguard CSV 适配器，生成订单草稿；Schwab API 后期接入
 
 ### 5. personal-cio-agent
 生成 Daily CIO Brief
@@ -88,15 +88,12 @@ investment-journal
 
 ## MVP路线
 
-Phase 1: Analysis Engine
+以 [10_TDD_Development_Plan_and_Codex_Prompts.md](10_TDD_Development_Plan_and_Codex_Prompts.md) 为唯一开发顺序。
 
-Phase 2: Trade Planner
-
-Phase 3: Investment Journal
-
-Phase 4: Personal CIO Agent
-
-Phase 5: Broker Gateway
+MVP: 本地数据分析、交易计划、CSV 导入、订单草稿、CIO 简报、日志及本地 Dashboard。
+CSV 导入、完整每日流程及 Dashboard 稳定后，才开始 Schwab 只读 API；人工批准下单最后实现。
+数据库结构以 [04_Database_Design.md](04_Database_Design.md) 为准。
+时区固定为 America/Chicago，不随旅行或系统时区改变。
 
 ---
 

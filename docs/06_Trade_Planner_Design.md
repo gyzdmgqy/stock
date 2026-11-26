@@ -9,6 +9,9 @@ This document defines the design of the **Trade Planner** module for the Persona
 
 The Trade Planner is the core decision-planning module of the system.
 
+Doc 04 owns the canonical schema, enums, and persistence mapping. Doc 10 owns
+build order. Model and JSON examples here illustrate the nested service contract.
+
 Its role is to convert structured market signals, portfolio state, account rules, risk constraints, and user strategy preferences into high-quality, human-reviewable trade plans.
 
 The Trade Planner does **not** automatically trade.
@@ -117,7 +120,11 @@ Example:
 
 ## 3.2 Intraday Signals
 
-Optional for MVP, but schema should support hourly execution signals.
+Hourly ingestion is optional for MVP, but plans that require hourly confirmation
+must remain WATCH until all required hourly conditions are confirmed using valid
+data. Missing, stale, or unconfirmed hourly signals mean no order draft for that
+plan, including conditional drafts. Daily-only strategies may act only when their
+own rule definitions do not require hourly confirmation.
 
 Examples:
 
@@ -160,6 +167,10 @@ Includes:
 
 ## 3.4 Account Role Rules
 
+Allocation ratios shown here are illustrative and unapproved. The user's
+Vanguard replacement allocation remains undecided; do not apply 70/30 or 60/40
+as an operational default. Keep replacement suggestions unallocated until chosen.
+
 The Trade Planner must respect account-level rules.
 
 Example:
@@ -190,7 +201,8 @@ Examples:
 - maximum sector exposure
 - maximum single-trade risk
 - no new entry before earnings unless explicitly allowed
-- no order draft if confidence below threshold
+- no new-entry draft if entry confidence is below threshold
+- separate REDUCE / EXIT eligibility rules based on confirmed exit triggers
 - no order draft if account role blocks action
 
 ---
@@ -354,20 +366,7 @@ Used for accounts where new individual stock purchases are disabled, especially 
 
 # 6. Strategy Types
 
-Recommended strategy types:
-
-```text
-INDEX_DCA
-TREND_FOLLOWING
-RANGE_TRADING
-FALSE_BREAKDOWN_REENTRY
-GAP_CONTINUATION
-GAP_EXHAUSTION_AVOID
-VANGUARD_EXIT_ONLY
-ACCOUNT_MIGRATION
-RISK_REDUCTION
-EARNINGS_RISK_CONTROL
-```
+Use StrategyType from [doc 04](04_Database_Design.md#canonical-enums-and-status-transitions).
 
 ---
 
@@ -394,19 +393,19 @@ Trade Planner behavior:
 
 - Do not generate new buy plans for individual stocks.
 - Generate exit plans for existing individual stocks.
-- Replacement plan should default to VOO / QQQ.
+- Replacement assets are illustrated as VOO / QQQ; allocation weights await the user's decision.
 - Future re-entry account should be Schwab Roth IRA.
 - Monitor relative performance vs VOO and QQQ.
 - Support time-based exit if no technical exit appears.
 
-Recommended replacement ratio:
+Unapproved example replacement ratio:
 
 ```yaml
 VOO: 70%
 QQQ: 30%
 ```
 
-Alternative growth-tilted ratio:
+Another unapproved example ratio:
 
 ```yaml
 VOO: 60%
@@ -476,14 +475,16 @@ if account_role == "CORE_PASSIVE":
 
 ---
 
-## 8.3 Confidence Gate
+## 8.3 Entry Confidence and Protective Exit Gates
+
+The following confidence bands apply only to ADD / RE_ENTRY:
 
 ```text
 confidence < 50:
   no order draft
 
 50 <= confidence < 70:
-  WATCH only or small-size plan
+  WATCH or small-size planning scenario; no entry order draft
 
 70 <= confidence < 85:
   eligible for order draft
@@ -493,6 +494,13 @@ confidence >= 85:
 ```
 
 ---
+
+Protective REDUCE / EXIT plans do not inherit the 70-point entry threshold.
+Their rules must establish a specific exit/risk-reduction trigger, a held
+position, valid sell quantity, and action-appropriate risk checks. Account
+restrictions, price/position freshness, draft validation, and human approval
+still apply. Exact exit triggers and thresholds are pending agreement; low
+entry confidence alone neither blocks an exit nor justifies a sale.
 
 ## 8.4 Event Risk Gate
 
@@ -650,15 +658,10 @@ REDUCE
 
 ## 11.1 Stop Types
 
-Supported stop types:
-
-```text
-NONE
-PRICE_STOP
-STOP_LIMIT
-STRUCTURE_CONFIRMATION
-TIME_STOP
-```
+Use StopType from doc 04: NONE, PRICE_STOP, STOP_LIMIT,
+STRUCTURE_CONFIRMATION, TIME_STOP. This differs from broker OrderType.
+Structure/time conditions generate reviewable intents when triggered; they are
+not executable broker order types.
 
 ## 11.2 Structure Confirmation Stop
 
@@ -719,7 +722,14 @@ The exact formula should be strategy-specific and backtested.
 
 ## 13.1 Simple MVP Rule
 
-Use percent-of-portfolio sizing.
+Use percent-of-account-equity sizing. Account equity includes holdings plus cash.
+For example, 1.5% of a $450,000 Schwab account is $6,750, even if the combined
+portfolio is $780,000. Cash availability and position limits can further reduce
+that amount. Also check combined stock/sector exposure across accounts.
+
+The existing percent_of_portfolio field means percentage points of this account
+in the MVP; sizing_basis=ACCOUNT makes the denominator explicit. Combined exposure
+checks are separate and never substitute a larger sizing denominator.
 
 Example:
 
@@ -740,7 +750,7 @@ position_value = max_risk_dollars / distance_to_stop_percent
 Example:
 
 ```text
-portfolio_value = 450,000
+account_equity = 450,000
 max_trade_risk = 0.5% = 2,250
 entry_price = 462
 stop_price = 447
@@ -748,7 +758,8 @@ risk_per_share = 15
 quantity = 2,250 / 15 = 150 shares
 ```
 
-The system should cap position size by maximum portfolio weight.
+Cap position size by the account's maximum position weight and separately
+validate combined-portfolio exposure.
 
 ## 13.3 Fractional Kelly
 
@@ -781,7 +792,7 @@ max_new_trade_weight: 0.03
 max_trade_risk_percent: 0.005
 min_risk_reward_ratio: 2.0
 block_new_entry_before_earnings_days: 5
-min_confidence_for_order_draft: 70
+min_entry_confidence_for_order_draft: 70
 ```
 
 ---
@@ -791,44 +802,34 @@ min_confidence_for_order_draft: 70
 A Trade Plan is eligible for order draft only if:
 
 - account_role allows the action
-- confidence >= minimum threshold
+- ADD / RE_ENTRY confidence >= entry threshold (default 70)
+- REDUCE / EXIT satisfies its separate protective-exit rules
+- all required hourly confirmations are satisfied
 - action is ADD, REDUCE, EXIT, or RE_ENTRY
 - price fields are valid
 - position size is valid
-- risk rules pass
-- no blocking event exists
+- action-specific risk rules pass (entry risk/reward rules do not automatically block protective exits)
+- no action-specific blocking event exists
 - user has not disabled order drafts
 
 WATCH plans should normally not generate order drafts.
 
 Exception:
 
-A WATCH plan may generate a conditional draft only if user explicitly enables conditional order drafts.
+A WATCH plan may generate a conditional draft only if the user explicitly enables
+conditional drafts and all required hourly confirmations are already satisfied.
+A WATCH state caused by missing, stale, or unconfirmed required hourly evidence
+never qualifies for this exception.
 
 ---
 
 # 16. Plan Status Lifecycle
 
-```text
-DRAFT
-  ↓
-REVIEWED
-  ↓
-APPROVED / REJECTED / EXPIRED
-  ↓
-EXECUTED
-```
-
-Status definitions:
-
-- DRAFT: system-generated, not yet reviewed
-- REVIEWED: user has reviewed
-- APPROVED: user approved
-- REJECTED: user rejected
-- EXPIRED: conditions no longer valid
-- EXECUTED: broker execution recorded
-
----
+Use the canonical TradePlanStatus transitions in doc 04. DRAFT becomes REVIEWED,
+then APPROVED or REJECTED. Invalid or superseded unexecuted plans become EXPIRED.
+Only an APPROVED plan whose intended execution is complete becomes EXECUTED.
+Partial fills remain execution records without prematurely completing the plan.
+Approving a plan never substitutes for approving an order draft.
 
 # 17. Example Plans
 
@@ -909,7 +910,7 @@ Trade Planner indirectly depends on:
 - events
 - portfolio snapshots
 
-## 18.3 broker-gateway-schwab
+## 18.3 broker-gateway
 
 Trade Planner provides broker-neutral order intent.
 
@@ -932,24 +933,31 @@ Journal records:
 
 # 19. Pydantic Model Draft
 
+This sketch shows nesting only. Implement canonical enums and all fields from
+doc 04, use Decimal for executable prices/quantities, and validate actionable
+plans. Exit examples are abbreviated and must also carry plan_date and applicable
+invalid conditions before persistence.
+
 ```python
 from datetime import date
+from decimal import Decimal
 from typing import Optional, List, Dict
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class OrderIntent(BaseModel):
     type: str
-    price: Optional[float] = None
-    stop_price: Optional[float] = None
-    limit_price: Optional[float] = None
+    price: Optional[Decimal] = None
+    stop_price: Optional[Decimal] = None
+    limit_price: Optional[Decimal] = None
     condition: Optional[str] = None
+    reason: Optional[str] = None
 
 
 class PositionSize(BaseModel):
     percent_of_portfolio: Optional[float] = None
-    estimated_value: Optional[float] = None
-    quantity: Optional[float] = None
+    estimated_value: Optional[Decimal] = None
+    quantity: Optional[Decimal] = None
 
 
 class TradePlan(BaseModel):
@@ -964,13 +972,14 @@ class TradePlan(BaseModel):
     reason: Optional[str] = None
     primary_timeframe: str = "daily"
     execution_timeframe: Optional[str] = None
-    entry_condition: List[str] = []
+    entry_condition: List[str] = Field(default_factory=list)
     entry_order: Optional[OrderIntent] = None
     stop_order: Optional[OrderIntent] = None
     position_size: Optional[PositionSize] = None
     risk_reward_ratio: Optional[float] = None
     confidence: Optional[float] = None
-    invalid_condition: List[str] = []
+    invalid_condition: List[str] = Field(default_factory=list)
+    exit_trigger: List[str] = Field(default_factory=list)
     replacement: Optional[Dict[str, float]] = None
     future_reentry_account: Optional[str] = None
     status: str = "DRAFT"

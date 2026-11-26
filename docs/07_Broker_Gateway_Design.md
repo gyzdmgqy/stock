@@ -9,7 +9,12 @@ This document defines the design of the **Broker Gateway** module for the Person
 
 The Broker Gateway is responsible for connecting Personal CIO System with brokerage accounts.
 
-For MVP and early production, the primary supported broker is:
+The module name is broker-gateway. Shared orchestration owns normalization,
+validation, drafts, and approvals; adapters/schwab/ and adapters/vanguard/ own
+broker formats. Vanguard execution remains manual.
+Doc 04 owns the canonical schema/enums; doc 10 owns build order.
+
+The primary broker for eventual approved API submission is:
 
 ```text
 Charles Schwab
@@ -89,8 +94,8 @@ System role:
 broker: SCHWAB
 account_role: ACTIVE_TRADING
 order_draft_enabled: true
-api_sync_enabled: true
-manual_csv_import_enabled: true
+api_sync_enabled: false
+csv_import_enabled: true
 ```
 
 ---
@@ -117,7 +122,7 @@ broker: VANGUARD
 account_role: CORE_PASSIVE
 order_draft_enabled: false
 api_sync_enabled: false
-manual_csv_import_enabled: true
+csv_import_enabled: true
 individual_stock_policy: EXIT_ONLY
 ```
 
@@ -199,7 +204,7 @@ Every broker-related action must be logged:
 # 5. Broker Gateway Architecture
 
 ```text
-broker-gateway-schwab/
+broker-gateway/
 ├── src/
 │   ├── auth/
 │   ├── accounts/
@@ -210,6 +215,8 @@ broker-gateway-schwab/
 │   ├── approvals/
 │   ├── csv_import/
 │   ├── adapters/
+│   │   ├── schwab/     # CSV first; read API in Phase 12, submission in Phase 13
+│   │   └── vanguard/   # CSV only
 │   ├── validators/
 │   ├── audit/
 │   └── api/
@@ -336,7 +343,7 @@ Input:
 
 ```json
 {
-  "plan_id": "TP-20260607-VRTX-001",
+  "plan_id": "TP-20260607-SCHWAB-VRTX-REENTRY-001",
   "account_id": "SCHWAB_ROTH",
   "symbol": "VRTX",
   "instruction": "BUY",
@@ -352,7 +359,7 @@ Output:
 ```json
 {
   "draft_id": "OD-20260607-VRTX-001",
-  "plan_id": "TP-20260607-VRTX-001",
+  "plan_id": "TP-20260607-SCHWAB-VRTX-REENTRY-001",
   "broker": "SCHWAB",
   "account_id": "SCHWAB_ROTH",
   "symbol": "VRTX",
@@ -385,7 +392,7 @@ Output:
 {
   "approval_id": "APR-20260607-VRTX-001",
   "draft_id": "OD-20260607-VRTX-001",
-  "plan_id": "TP-20260607-VRTX-001",
+  "plan_id": "TP-20260607-SCHWAB-VRTX-REENTRY-001",
   "decision": "APPROVED",
   "decision_note": "Approved after manual review.",
   "approved_quantity": 10,
@@ -413,7 +420,7 @@ The service must validate:
 - Account role allows action
 - Cash or position is available
 - Order payload is valid
-- User approval exists
+- Latest applicable approval is APPROVED and its payload matches the exact draft
 - No blocking risk rule remains active
 
 ---
@@ -422,17 +429,8 @@ The service must validate:
 
 Responsible for retrieving broker order status.
 
-Status values:
-
-```text
-SUBMITTED
-FILLED
-PARTIALLY_FILLED
-CANCELED
-REJECTED
-FAILED
-UNKNOWN
-```
+Map broker statuses to the canonical OrderDraftStatus registry in doc 04.
+Preserve broker responses in the audit trail; UNKNOWN requires reconciliation.
 
 The result should update:
 
@@ -450,7 +448,7 @@ Example:
 
 ```json
 {
-  "plan_id": "TP-20260607-VRTX-001",
+  "plan_id": "TP-20260607-SCHWAB-VRTX-REENTRY-001",
   "account_id": "SCHWAB_ROTH",
   "symbol": "VRTX",
   "instruction": "BUY",
@@ -565,21 +563,31 @@ Schwab ACTIVE_TRADING:
 
 ---
 
-## 9.3 Confidence Gate
+## 9.3 Action-Specific Eligibility
 
-Order draft should not be generated if:
+For ADD / RE_ENTRY, no order draft is generated if:
 
 ```text
-confidence < minimum_order_draft_confidence
+confidence < min_entry_confidence_for_order_draft
 ```
 
 Default:
 
 ```yaml
-minimum_order_draft_confidence: 70
+min_entry_confidence_for_order_draft: 70
 ```
 
 ---
+
+REDUCE / EXIT uses the planner's separate protective-exit rules; do not apply
+the entry-confidence cutoff. Require a validated exit trigger, available held
+quantity, account permission, action-specific checks, and approval. A BUY cannot
+bypass the entry gate by being labeled a protective exit. Exact exit thresholds
+must be agreed before implementation.
+
+Plans requiring hourly confirmation remain WATCH with no draft while that
+confirmation is missing, stale, or unsatisfied. No conditional-draft exception
+may bypass this requirement.
 
 ## 9.4 Cash / Position Check
 
@@ -632,17 +640,11 @@ unless user explicitly overrides.
 
 # 10. Order Draft Lifecycle
 
-```text
-PENDING_REVIEW
-    ↓
-APPROVED / REJECTED / MODIFIED / DEFERRED
-    ↓
-SUBMITTED
-    ↓
-FILLED / PARTIALLY_FILLED / CANCELED / FAILED
-```
-
----
+Use [doc 04's transition table](04_Database_Design.md#canonical-enums-and-status-transitions).
+Only APPROVED may enter SUBMITTING. MODIFIED retires the old draft and creates
+a new PENDING_REVIEW draft with replaces_draft_id; fresh approval is required.
+A matching approval_record.approved_payload is mandatory before submission.
+SUBMITTING timeouts become UNKNOWN and must be reconciled before retry.
 
 # 11. Database Tables Used
 
@@ -651,6 +653,7 @@ The Broker Gateway reads/writes the following DuckDB tables:
 ```text
 portfolio_account
 portfolio_position_snapshot
+portfolio_cash_snapshot
 broker_transaction
 trade_plan
 order_draft
@@ -744,6 +747,10 @@ note
 
 # 14. Vanguard Exit-Only Handling
 
+Allocation ratios shown here are illustrative and unapproved. The user's
+Vanguard replacement allocation remains undecided; do not apply 70/30 or 60/40
+as an operational default. Keep replacement suggestions unallocated until chosen.
+
 For Vanguard Roth IRA:
 
 ```text
@@ -799,7 +806,7 @@ Example:
 {
   "message_id": "ERR-20260607-SCHWAB-001",
   "message_type": "ERROR",
-  "source": "broker-gateway-schwab",
+  "source": "broker-gateway",
   "created_at": "2026-06-07T22:10:00Z",
   "payload": {
     "error_type": "AUTH_ERROR",
@@ -810,21 +817,7 @@ Example:
 }
 ```
 
-Error types:
-
-```text
-AUTH_ERROR
-BROKER_API_ERROR
-DATA_MISSING
-CSV_PARSE_ERROR
-VALIDATION_ERROR
-DUPLICATE_ORDER
-INSUFFICIENT_CASH
-INSUFFICIENT_POSITION
-RISK_RULE_BLOCKED
-USER_APPROVAL_REQUIRED
-UNKNOWN
-```
+Use the complete ErrorType registry in doc 04.
 
 ---
 
@@ -876,29 +869,21 @@ brokers:
     order_submission_enabled: false
     order_draft_enabled: false
 
-accounts:
-  SCHWAB_ROTH:
-    broker: SCHWAB
-    account_type: ROTH_IRA
-    account_role: ACTIVE_TRADING
-    order_draft_enabled: true
-
-  VANGUARD_ROTH:
-    broker: VANGUARD
-    account_type: ROTH_IRA
-    account_role: CORE_PASSIVE
-    individual_stock_policy: EXIT_ONLY
-    default_replacement:
-      VOO: 0.7
-      QQQ: 0.3
 ```
+
+Account roles and replacement policy live only in config/accounts.yaml (doc 09).
+config/broker.yaml defines broker capabilities; it cannot relax account policy.
 
 ---
 
 # 19. Pydantic Model Draft
 
+These abbreviated model sketches illustrate message usage. Doc 04 owns complete
+fields/enums and requires Decimal for executable prices and quantities.
+
 ```python
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional, Dict
 from pydantic import BaseModel
 
@@ -911,10 +896,10 @@ class OrderDraft(BaseModel):
     symbol: str
     instruction: str
     order_type: str
-    quantity: float
-    limit_price: Optional[float] = None
-    stop_price: Optional[float] = None
-    stop_limit_price: Optional[float] = None
+    quantity: Decimal
+    limit_price: Optional[Decimal] = None
+    stop_price: Optional[Decimal] = None
+    stop_limit_price: Optional[Decimal] = None
     time_in_force: str = "DAY"
     session: str = "NORMAL"
     status: str = "PENDING_REVIEW"
@@ -927,9 +912,9 @@ class ApprovalDecision(BaseModel):
     plan_id: str
     decision: str
     decision_note: Optional[str] = None
-    approved_quantity: Optional[float] = None
-    approved_limit_price: Optional[float] = None
-    approved_stop_price: Optional[float] = None
+    approved_quantity: Optional[Decimal] = None
+    approved_limit_price: Optional[Decimal] = None
+    approved_stop_price: Optional[Decimal] = None
     decided_at: datetime
 
 
@@ -942,11 +927,11 @@ class BrokerTransaction(BaseModel):
     trade_date: Optional[date] = None
     settlement_date: Optional[date] = None
     transaction_type: str
-    quantity: Optional[float] = None
-    price: Optional[float] = None
-    gross_amount: Optional[float] = None
-    fee: Optional[float] = None
-    net_amount: Optional[float] = None
+    quantity: Optional[Decimal] = None
+    price: Optional[Decimal] = None
+    gross_amount: Optional[Decimal] = None
+    fee: Optional[Decimal] = None
+    net_amount: Optional[Decimal] = None
     order_type: Optional[str] = None
     broker_order_id: Optional[str] = None
     source: str
@@ -958,43 +943,20 @@ class BrokerTransaction(BaseModel):
 
 # 20. Development Phases
 
-## Phase 1: CSV Import
+[Doc 10](10_TDD_Development_Plan_and_Codex_Prompts.md) is authoritative:
 
-- Import Schwab transactions CSV
-- Import Vanguard transactions CSV
-- Import positions CSV
-- Normalize to broker_transaction
-- Write to DuckDB
+| Phase | Broker work |
+|---|---|
+| 8 | Schwab/Vanguard CSV positions, cash, and transactions; normalization and journal linking |
+| 9 | Local order draft generation, validation, approval records |
+| 10 | End-to-end daily pipeline |
+| 11 | Local dashboard and approval workflow |
+| 12 | Schwab read-only API, only after CSV, pipeline, and dashboard are stable |
+| 13 | Approved Schwab submission, reconciliation, and execution journal |
 
-## Phase 2: Schwab Read-Only API
-
-- Connect Schwab API
-- Read accounts
-- Read positions
-- Read balances
-- Read order status
-- Read transactions if supported
-
-## Phase 3: Order Draft Generation
-
-- Convert Trade Plan to broker-neutral order draft
-- Validate order draft
-- Store as PENDING_REVIEW
-
-## Phase 4: Human Approval
-
-- User approves / rejects / modifies
-- Store approval record
-- Update order draft status
-
-## Phase 5: Approved Order Submission
-
-- Submit only approved orders
-- Store broker response
-- Sync order status
-- Record execution in journal
-
----
+No Schwab API connection is needed for the local MVP. Earlier example configs
+must keep api_sync_enabled false. Future API capabilities in this document are
+implemented only at their assigned phase.
 
 # 21. Testing Strategy
 
@@ -1024,7 +986,9 @@ Must verify:
 
 - No order can be submitted without approval
 - Vanguard individual stock BUY is blocked
-- Confidence below threshold blocks order draft
+- Entry confidence below threshold blocks ADD / RE_ENTRY drafts
+- REDUCE / EXIT follows separate trigger-based eligibility
+- Missing required hourly confirmation blocks drafts
 - Duplicate order draft is blocked
 - Insufficient cash blocks buy submission
 - Insufficient position blocks sell submission

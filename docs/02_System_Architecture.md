@@ -35,9 +35,9 @@ analysis-engine
         ↓
 trade-planner
         ↓
-personal-cio-agent
+broker-gateway (order drafts)
         ↓
-broker-gateway-schwab
+personal-cio-agent (CIO brief)
         ↓
 investment-journal
 ```
@@ -75,13 +75,13 @@ Every module must be independently replaceable.
 
 # 4. Repository Architecture
 
-Repositories:
+One Python monorepo with these modules:
 
 1. market-data-service
 2. analysis-engine
 3. trade-planner
-4. personal-cio-agent
-5. broker-gateway-schwab
+4. broker-gateway
+5. personal-cio-agent
 6. investment-journal
 
 ---
@@ -94,9 +94,14 @@ Repositories:
 2. Calculate indicators
 3. Generate signals
 4. Generate trade plans
-5. Generate CIO Brief
-6. Generate order drafts
-7. Persist everything
+5. Generate eligible order drafts through broker-gateway
+6. Generate CIO Brief, including those drafts and prior journal reminders
+7. Record the completed daily workflow in investment-journal
+
+Persist each stage as it succeeds. The final journal stage does not delay storing
+signals, plans, or drafts. Before analysis/planning, load the latest imported
+positions, cash, and account policies; broker CSV import is a separate input step.
+Review decisions and later executions create additional journal entries.
 
 ## User Workflow
 
@@ -110,23 +115,17 @@ Repositories:
 
 # 6. Database Architecture
 
-Phase 1:
-
-- DuckDB
-- SQLite
-
-Phase 2:
-
-- PostgreSQL
+MVP: DuckDB only. [Doc 04](04_Database_Design.md) is the single canonical schema.
+Any later SQLite/PostgreSQL split is an optional future decision.
 
 Core tables:
 
 - symbol
 - daily_price
-- signal
+- daily_signal
 - trade_plan
 - order_draft
-- journal
+- journal_entry
 
 ---
 
@@ -186,27 +185,18 @@ Daily Sections:
 
 # 10. Broker Gateway
 
-Phase 1:
+The neutral broker-gateway owns account, position, cash, and transaction imports,
+order drafts, approvals, and broker adapters.
 
-Read-only account access.
+Build sequence follows [doc 10](10_TDD_Development_Plan_and_Codex_Prompts.md):
 
-Phase 2:
+- Phase 8: Schwab and Vanguard CSV import.
+- Phase 9: Local order drafts and approval services.
+- Phases 10-11: Stable daily pipeline and local dashboard.
+- Phase 12: Schwab read-only API.
+- Phase 13: User-approved Schwab submission.
 
-Order draft generation.
-
-Phase 3:
-
-User-approved submission.
-
-Supported broker:
-
-- Charles Schwab
-
-Future:
-
-- IBKR
-- Fidelity
-- Vanguard
+Vanguard remains CSV/manual execution only.
 
 ---
 
@@ -232,21 +222,12 @@ Analytics:
 
 # 12. Deployment Architecture
 
-Phase 1:
+Start with local Python, DuckDB, Markdown/JSON reports, CSV imports, and a local
+Streamlit dashboard. Home-server/cloud hosting is optional future work and is not
+a prerequisite for Schwab integration. Doc 10 owns all numbered build phases.
 
-- Local Machine
-- Python
-- DuckDB
-- Markdown Reports
-
-Phase 2:
-
-- Home Server
-- Cloud VM
-
-Phase 3:
-
-- Streamlit Dashboard
+Application timezone: America/Chicago, independent of host location. UTC storage
+and exchange-session dates follow doc 04.
 
 ---
 

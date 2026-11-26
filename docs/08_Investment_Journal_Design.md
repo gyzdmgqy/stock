@@ -135,10 +135,9 @@ The Investment Journal consumes data from:
 ## 4.2 trade-planner
 
 - TRADE_PLAN
-- EXIT_PLAN
-- RE_ENTRY_PLAN
+- Exit and re-entry variants of TRADE_PLAN
 
-## 4.3 broker-gateway-schwab
+## 4.3 broker-gateway
 
 - ORDER_DRAFT
 - APPROVAL_DECISION
@@ -176,21 +175,7 @@ The Investment Journal produces:
 
 # 6. Journal Entry Types
 
-Supported entry types:
-
-```text
-DAILY
-SIGNAL_REVIEW
-TRADE_PLAN_REVIEW
-ORDER_REVIEW
-TRADE_EXECUTION
-MANUAL_NOTE
-WEEKLY_REVIEW
-MONTHLY_REVIEW
-PERFORMANCE_REVIEW
-BEHAVIOR_REVIEW
-ACCOUNT_MIGRATION
-```
+Use JournalEntryType from [doc 04](04_Database_Design.md#canonical-enums-and-status-transitions).
 
 ---
 
@@ -210,7 +195,7 @@ daily_cio_brief
 performance_review
 ```
 
-Additional recommended table:
+Required outcome-tracking table (provisioned in Phase 2; populated in Phase 6):
 
 ```text
 trade_outcome
@@ -224,40 +209,8 @@ Purpose:
 
 Stores user/system journal entries.
 
-```sql
-CREATE TABLE IF NOT EXISTS journal_entry (
-    journal_id TEXT PRIMARY KEY,
-    journal_date DATE NOT NULL,
-
-    symbol TEXT,
-    account_id TEXT,
-    plan_id TEXT,
-    draft_id TEXT,
-    transaction_id TEXT,
-
-    entry_type TEXT,            -- DAILY, TRADE_PLAN_REVIEW, ORDER_REVIEW, etc.
-    action TEXT,
-
-    thesis TEXT,
-    decision_reason TEXT,
-    user_note TEXT,
-    system_note TEXT,
-
-    market_regime TEXT,
-    strategy_type TEXT,
-    confidence DOUBLE,
-
-    emotion_tag TEXT,           -- CALM, FEARFUL, FOMO, FRUSTRATED, CONFIDENT
-    discipline_score DOUBLE,    -- 0-100
-
-    outcome_5d DOUBLE,
-    outcome_20d DOUBLE,
-    outcome_60d DOUBLE,
-
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP
-);
-```
+Canonical table definition: [doc 04, journal_entry](04_Database_Design.md#121-journal_entry).
+All fields from this document's original richer schema are retained there.
 
 ---
 
@@ -269,44 +222,8 @@ Stores post-trade or post-plan outcome tracking.
 
 A Trade Plan should be evaluated even if it was rejected, because rejected plans can still teach whether the system signal was useful.
 
-```sql
-CREATE TABLE IF NOT EXISTS trade_outcome (
-    outcome_id TEXT PRIMARY KEY,
-
-    plan_id TEXT,
-    draft_id TEXT,
-    transaction_id TEXT,
-    symbol TEXT,
-    account_id TEXT,
-
-    reference_date DATE NOT NULL,
-    reference_price DOUBLE,
-
-    outcome_date_5d DATE,
-    outcome_price_5d DOUBLE,
-    outcome_return_5d DOUBLE,
-    max_drawdown_5d DOUBLE,
-    max_runup_5d DOUBLE,
-
-    outcome_date_20d DATE,
-    outcome_price_20d DOUBLE,
-    outcome_return_20d DOUBLE,
-    max_drawdown_20d DOUBLE,
-    max_runup_20d DOUBLE,
-
-    outcome_date_60d DATE,
-    outcome_price_60d DOUBLE,
-    outcome_return_60d DOUBLE,
-    max_drawdown_60d DOUBLE,
-    max_runup_60d DOUBLE,
-
-    outcome_label TEXT,          -- WIN, LOSS, FLAT, MISSED_OPPORTUNITY, AVOIDED_LOSS
-    lesson TEXT,
-
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP
-);
-```
+Canonical table definition: [doc 04, trade_outcome](04_Database_Design.md#123-trade_outcome).
+All fields from this document's original richer schema are retained there.
 
 ---
 
@@ -316,39 +233,8 @@ Purpose:
 
 Stores aggregated strategy and account review.
 
-```sql
-CREATE TABLE IF NOT EXISTS performance_review (
-    review_id TEXT PRIMARY KEY,
-    review_date DATE NOT NULL,
-
-    review_type TEXT,            -- WEEKLY, MONTHLY, QUARTERLY, STRATEGY, ACCOUNT, BEHAVIOR
-    strategy_type TEXT,
-    account_id TEXT,
-
-    period_start DATE,
-    period_end DATE,
-
-    trade_count INTEGER,
-    plan_count INTEGER,
-    approved_count INTEGER,
-    rejected_count INTEGER,
-
-    win_rate DOUBLE,
-    average_return DOUBLE,
-    median_return DOUBLE,
-    max_drawdown DOUBLE,
-    average_risk_reward DOUBLE,
-
-    best_trade_symbol TEXT,
-    worst_trade_symbol TEXT,
-
-    summary TEXT,
-    lessons TEXT,
-    next_actions TEXT,
-
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
+Canonical table definition: [doc 04, performance_review](04_Database_Design.md#122-performance_review).
+All fields from this document's original richer schema are retained there.
 
 ---
 
@@ -510,20 +396,7 @@ Is Schwab active trading outperforming VOO / QQQ after risk and effort?
 
 # 16. Strategy-Level Review
 
-The Journal should group plans/trades by strategy_type:
-
-```text
-TREND_FOLLOWING
-RANGE_TRADING
-FALSE_BREAKDOWN_REENTRY
-GAP_CONTINUATION
-GAP_EXHAUSTION_AVOID
-VANGUARD_EXIT_ONLY
-ACCOUNT_MIGRATION
-RISK_REDUCTION
-EARNINGS_RISK_CONTROL
-INDEX_DCA
-```
+Group plans/trades by the canonical StrategyType in doc 04.
 
 For each strategy, calculate:
 
@@ -569,13 +442,8 @@ excess_return_vs_qqq
 excess_return_vs_spy
 ```
 
-Future schema extension:
-
-```sql
-ALTER TABLE trade_outcome ADD COLUMN excess_return_vs_voo DOUBLE;
-ALTER TABLE trade_outcome ADD COLUMN excess_return_vs_qqq DOUBLE;
-ALTER TABLE trade_outcome ADD COLUMN excess_return_vs_spy DOUBLE;
-```
+Future schema changes belong in doc 04. Benchmark fields must specify their
+5/20/60-trading-day horizon before they are added; Phase 6 uses placeholders.
 
 ---
 
@@ -636,6 +504,9 @@ Recommended monthly report sections:
 
 # 20. Behavior Review
 
+Protective exits are assessed against their own rules, not the entry-confidence
+threshold. Do not label a valid low-entry-confidence REDUCE / EXIT as a violation.
+
 Behavior review tracks whether the user is improving as an investor.
 
 Important behavior metrics:
@@ -654,7 +525,7 @@ Important behavior metrics:
 Example output:
 
 ```text
-This month, 3 trades were approved below confidence threshold.
+This month, 3 externally imported entry trades had confidence below the entry threshold.
 2 trades were influenced by FOMO.
 You followed account-role rules 100% of the time.
 You avoided new individual stock buys in Vanguard.
@@ -704,6 +575,9 @@ Example:
 ---
 
 # 23. Pydantic Model Draft
+
+These abbreviated model sketches illustrate service usage; doc 04 owns the
+complete field set and enum values. They are not independent schema definitions.
 
 ```python
 from datetime import date, datetime
@@ -775,35 +649,40 @@ class PerformanceReview(BaseModel):
 
 ---
 
-# 24. Development Phases
+# 24. Journal Capabilities
 
-## Phase 1: Basic Journal
+[Doc 10](10_TDD_Development_Plan_and_Codex_Prompts.md) owns build sequencing.
+Basic journal services and outcome calculations are Phase 6, CSV linking is
+integrated in Phase 8, and the daily pipeline in Phase 10. Full performance and
+behavioral analytics are follow-on scope unless explicitly added to doc 10.
+
+## Capability: Basic Journal
 
 - Record Daily CIO Brief
 - Record Trade Plans
 - Record user decisions
 - Record manual notes
 
-## Phase 2: Transaction Linking
+## Capability: Transaction Linking
 
 - Link broker transactions to plans
 - Link order drafts to executions
 - Import Schwab/Vanguard transactions
 
-## Phase 3: Outcome Tracking
+## Capability: Outcome Tracking
 
 - Calculate 5d / 20d / 60d outcomes
 - Track max drawdown and max runup
 - Compare rejected vs approved plans
 
-## Phase 4: Performance Review
+## Capability: Performance Review
 
 - Generate weekly review
 - Generate monthly review
 - Strategy-level performance
 - Account-level performance
 
-## Phase 5: Behavioral Analytics
+## Capability: Behavioral Analytics
 
 - Detect FOMO trades
 - Detect rule violations

@@ -1,11 +1,19 @@
 # Personal CIO System
-## Database Design V1.0
+## Database Design V1.1
 
 ---
 
 # 1. Purpose
 
-This document defines the MVP database design for Personal CIO System.
+This document is the single canonical database schema for Personal CIO System.
+All CREATE TABLE definitions and persisted enum values are owned here. Other
+documents describe behavior or message examples and must reference this schema.
+The build order is owned by [doc 10](10_TDD_Development_Plan_and_Codex_Prompts.md).
+
+Confirmed: DuckDB-only MVP and the richer journal fields originally in doc 08.
+The relational-core-plus-JSON mapping below is the recommended design baseline,
+pending the user's storage-design review. It is a concrete proposal, not a
+previously approved storage decision. See [design decisions](11_Design_Alignment_and_Open_Decisions.md).
 
 The MVP database uses **DuckDB only**.
 
@@ -50,7 +58,46 @@ The system needs to:
 
 These workloads are closer to local analytical processing than traditional transactional application storage.
 
-## 2.3 Future Evolution
+## 2.3 Storage Mapping Recommendation
+
+Keep typed relational columns for identity, links, account, dates, status, action,
+prices, quantity, confidence, and other frequently queried or validated values.
+Use JSON for variable-length conditions, replacement allocations, structured
+brief sections, and broker-specific payloads. Keep the nested Pydantic message
+model; a repository mapper translates it to and from the relational row.
+
+Each value has one authoritative storage location. Do not keep a second writable
+copy of the complete TradePlan alongside its columns. Broker raw_payload is
+derived from validated order columns and cannot override them. Preserve the
+exact reviewed order in approval_record.approved_payload for audit comparison.
+
+| Message path | Canonical storage |
+|---|---|
+| entry_order.type / entry_order.price | trade_plan.entry_order_type / entry_price |
+| stop_order.type / stop_price / limit_price / condition / reason | stop_type / stop_price / stop_limit_price / stop_condition / stop_reason |
+| position_size.percent_of_portfolio / estimated_value / quantity | position_size_percent / position_size_value / quantity |
+| entry_condition / invalid_condition / exit_trigger | JSON arrays in the corresponding columns |
+| replacement | JSON object mapping symbol to allocation fraction |
+| DailyCioBrief structured summaries | Corresponding JSON summary columns |
+| OrderDraft.raw_payload | Derived broker payload JSON |
+| ApprovalDecision approved order | Immutable approved_payload JSON |
+
+Use JSON arrays even for one condition. Empty arrays mean no conditions; NULL
+means unavailable only where explicitly allowed. Parse and validate JSON through
+shared models on every write and reconstruct the same model on read. Actionable
+plans require nonempty invalid_condition; conditional exits also require
+exit_trigger. Human explanations must not become executable conditions.
+
+The current messages use percentage points for percent_of_portfolio (1.5 means
+1.5%) and fractions for portfolio_weight and allocation ratios (0.015 means 1.5%).
+Conversions must be explicit. Position sizing uses the individual account's
+current equity (holdings plus cash); record sizing_basis=ACCOUNT and the actual
+sizing_base_value with each sized plan. Run separate combined-portfolio exposure
+checks across accounts; combined portfolio value never increases an account's
+order-sizing budget. Account-based size limits and combined exposure limits must
+both pass for new entries. Protective exits use action-specific risk checks.
+
+## 2.4 Future Evolution
 
 MVP:
 
@@ -66,6 +113,25 @@ SQLite/PostgreSQL for app state and broker workflow
 ```
 
 ---
+
+## 2.5 Time and Persistence Rules
+
+Application/report/scheduler timezone is always America/Chicago, regardless of
+the host timezone or travel. Store instants as UTC TIMESTAMPTZ; trade_date is the
+exchange session date, not the host's calendar date. Use an exchange trading
+calendar for trading-day horizons and event windows.
+
+All writes for one business operation must be atomic. Use one coordinated local
+writer; dashboard approvals, CSV imports, and scheduled runs must share that
+writer or take an application lock and close connections between operations.
+Initialization is idempotent; schema changes require versioned migrations.
+Do not treat CREATE TABLE IF NOT EXISTS as a migration mechanism.
+
+Validate enums from section 15 in shared/enums and at repository boundaries.
+Validate referenced IDs and account consistency before committing linked records.
+Round-trip tests must cover nested fields and the complete richer journal.
+A rerun must preserve reviewed plans, approvals, and journal notes; changed inputs
+produce a new plan ID and explicit supersedes_plan_id.
 
 # 3. Database File Layout
 
@@ -155,8 +221,8 @@ CREATE TABLE IF NOT EXISTS symbol (
     exchange TEXT,
     currency TEXT DEFAULT 'USD',
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ
 );
 ```
 
@@ -165,6 +231,7 @@ Example symbols:
 ```text
 SPY
 QQQ
+VOO
 VRTX
 MSFT
 NVDA
@@ -188,7 +255,7 @@ CREATE TABLE IF NOT EXISTS watchlist (
     watchlist_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -204,7 +271,7 @@ CREATE TABLE IF NOT EXISTS watchlist_symbol (
     symbol TEXT,
     priority INTEGER DEFAULT 0,
     note TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (watchlist_id, symbol)
 );
 ```
@@ -226,7 +293,7 @@ CREATE TABLE IF NOT EXISTS daily_price (
     adjusted_close DOUBLE,
     volume BIGINT,
     source TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (symbol, trade_date)
 );
 ```
@@ -254,7 +321,7 @@ CREATE TABLE IF NOT EXISTS corporate_event (
     description TEXT,
     source TEXT,
     importance INTEGER DEFAULT 3,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -272,7 +339,7 @@ CREATE TABLE IF NOT EXISTS macro_event (
     title TEXT,
     description TEXT,
     importance INTEGER DEFAULT 3,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -285,7 +352,7 @@ Stores market and company news metadata and summaries.
 ```sql
 CREATE TABLE IF NOT EXISTS news_item (
     news_id TEXT PRIMARY KEY,
-    published_at TIMESTAMP,
+    published_at TIMESTAMPTZ,
     symbol TEXT,
     title TEXT,
     summary TEXT,
@@ -293,7 +360,30 @@ CREATE TABLE IF NOT EXISTS news_item (
     url TEXT,
     sentiment_score DOUBLE,
     importance INTEGER DEFAULT 3,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## 5.8 intraday_price
+
+Hourly storage is provisioned in Phase 2; ingestion remains optional for MVP.
+
+```sql
+CREATE TABLE IF NOT EXISTS intraday_price (
+    symbol TEXT NOT NULL,
+    interval TEXT NOT NULL DEFAULT '1h',
+    bar_start TIMESTAMPTZ NOT NULL,
+    trade_date DATE NOT NULL,
+    open DOUBLE,
+    high DOUBLE,
+    low DOUBLE,
+    close DOUBLE,
+    volume BIGINT,
+    source TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (symbol, interval, bar_start)
 );
 ```
 
@@ -339,7 +429,7 @@ CREATE TABLE IF NOT EXISTS daily_indicator (
     volatility_20d DOUBLE,
     volatility_60d DOUBLE,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (symbol, trade_date)
 );
 ```
@@ -379,11 +469,11 @@ CREATE TABLE IF NOT EXISTS daily_signal (
     volume_confirmation_score DOUBLE,
     risk_score DOUBLE,
 
-    action_hint TEXT,         -- HOLD, WATCH, ADD, REDUCE, EXIT, RE_ENTRY, AVOID
+    action_hint TEXT,         -- See Action enum (includes EXIT_ONLY)
     confidence DOUBLE,
 
     reason TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -404,12 +494,12 @@ Stores detailed signal components for explainability.
 CREATE TABLE IF NOT EXISTS signal_detail (
     detail_id TEXT PRIMARY KEY,
     signal_id TEXT NOT NULL,
-    component TEXT,           -- TREND, GAP, VOLUME, BREAKDOWN, RISK
+    component TEXT,           -- See SignalComponent enum
     rule_name TEXT,
     rule_value TEXT,
     score DOUBLE,
     explanation TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -437,10 +527,16 @@ CREATE TABLE IF NOT EXISTS portfolio_account (
     account_id TEXT PRIMARY KEY,
     broker TEXT,              -- SCHWAB, VANGUARD, MANUAL
     account_name TEXT,
-    account_type TEXT,        -- TAXABLE, IRA, ROTH, OTHER
+    account_type TEXT,        -- TAXABLE, TRADITIONAL_IRA, ROTH_IRA, OTHER
+    account_role TEXT NOT NULL, -- See canonical AccountRole enum
+    individual_stock_policy TEXT,
+    order_draft_enabled BOOLEAN DEFAULT FALSE,
+    api_sync_enabled BOOLEAN DEFAULT FALSE,
+    csv_import_enabled BOOLEAN DEFAULT TRUE,
+    default_replacement JSON,
     base_currency TEXT DEFAULT 'USD',
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -455,6 +551,8 @@ CREATE TABLE IF NOT EXISTS portfolio_position_snapshot (
     snapshot_id TEXT PRIMARY KEY,
     account_id TEXT,
     snapshot_date DATE NOT NULL,
+    observed_at TIMESTAMPTZ,
+    source TEXT,
     symbol TEXT NOT NULL,
     quantity DOUBLE,
     market_price DOUBLE,
@@ -463,7 +561,7 @@ CREATE TABLE IF NOT EXISTS portfolio_position_snapshot (
     unrealized_pnl DOUBLE,
     unrealized_pnl_percent DOUBLE,
     portfolio_weight DOUBLE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -484,6 +582,7 @@ Stores daily portfolio-level risk metrics.
 CREATE TABLE IF NOT EXISTS portfolio_risk_snapshot (
     snapshot_id TEXT PRIMARY KEY,
     snapshot_date DATE NOT NULL,
+    account_id TEXT, -- NULL denotes the combined portfolio
 
     total_market_value DOUBLE,
     cash_value DOUBLE,
@@ -496,7 +595,64 @@ CREATE TABLE IF NOT EXISTS portfolio_risk_snapshot (
     portfolio_risk_score DOUBLE,
     notes TEXT,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## 8.4 portfolio_cash_snapshot
+
+Cash availability is separate from positions; missing cash is unknown, never zero.
+
+```sql
+CREATE TABLE IF NOT EXISTS portfolio_cash_snapshot (
+    snapshot_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    snapshot_date DATE NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL,
+    currency TEXT DEFAULT 'USD',
+    cash_balance DECIMAL(20, 6),
+    available_to_trade DECIMAL(20, 6),
+    source TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 8.5 broker_transaction
+
+Shared normalized transactions from Schwab, Vanguard CSV, or manual input.
+Source identifiers and deduplication keys are scoped to account and broker.
+CSV/API reconciliation must preserve separate real fills that happen to have
+identical prices and quantities. Sign conventions and matching rules must be
+specified with broker sample formats before Phase 8.
+
+```sql
+CREATE TABLE IF NOT EXISTS broker_transaction (
+    transaction_id TEXT PRIMARY KEY,
+    broker TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    symbol TEXT,
+    transaction_time TIMESTAMPTZ,
+    trade_date DATE,
+    settlement_date DATE,
+    transaction_type TEXT NOT NULL,
+    quantity DECIMAL(20, 8),
+    price DECIMAL(20, 6),
+    gross_amount DECIMAL(20, 6),
+    fee DECIMAL(20, 6),
+    net_amount DECIMAL(20, 6),
+    order_type TEXT,
+    broker_order_id TEXT,
+    broker_transaction_id TEXT,
+    plan_id TEXT,
+    draft_id TEXT,
+    source TEXT NOT NULL,
+    source_file TEXT,
+    deduplication_key TEXT NOT NULL,
+    note TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (broker, account_id, deduplication_key)
 );
 ```
 
@@ -515,35 +671,51 @@ CREATE TABLE IF NOT EXISTS trade_plan (
     plan_id TEXT PRIMARY KEY,
     symbol TEXT NOT NULL,
     plan_date DATE NOT NULL,
+    account_id TEXT NOT NULL,
+    account_role TEXT NOT NULL, -- Role when the plan was generated
+    supersedes_plan_id TEXT,
+    primary_timeframe TEXT DEFAULT 'daily',
+    execution_timeframe TEXT,
+    rule_version TEXT,
+    input_references JSON, -- Source table names, row IDs, and observed timestamps
 
-    action TEXT NOT NULL,       -- HOLD, WATCH, ADD, REDUCE, EXIT, RE_ENTRY, AVOID
-    strategy_type TEXT,         -- TREND, RANGE, FALSE_BREAKDOWN, GAP, FUNDAMENTAL, INDEX_DCA
+    action TEXT NOT NULL,       -- See Action enum (includes EXIT_ONLY)
+    strategy_type TEXT,         -- See StrategyType enum
 
     thesis TEXT,
     reason TEXT,
 
-    entry_condition TEXT,
-    entry_price DOUBLE,
+    entry_condition JSON,
+    entry_order_type TEXT,
+    entry_price DECIMAL(20, 6),
 
-    stop_type TEXT,             -- NONE, STOP, STOP_LIMIT, STRUCTURE_CONFIRMATION
-    stop_price DOUBLE,
-    stop_limit_price DOUBLE,
+    stop_type TEXT,             -- See StopType enum; distinct from broker OrderType
+    stop_price DECIMAL(20, 6),
+    stop_limit_price DECIMAL(20, 6),
+    stop_condition TEXT,
+    stop_reason TEXT,
 
     target_price_1 DOUBLE,
     target_price_2 DOUBLE,
 
     position_size_percent DOUBLE,
-    position_size_value DOUBLE,
+    position_size_value DECIMAL(20, 6),
+    quantity DECIMAL(20, 8),
+    sizing_basis TEXT DEFAULT 'ACCOUNT', -- MVP sizing denominator: individual account equity
+    sizing_base_value DECIMAL(20, 6),
 
     risk_reward_ratio DOUBLE,
     confidence DOUBLE,
 
-    invalid_condition TEXT,
+    invalid_condition JSON,
+    exit_trigger JSON,
+    replacement JSON,
+    future_reentry_account TEXT,
 
     status TEXT DEFAULT 'DRAFT', -- DRAFT, REVIEWED, APPROVED, REJECTED, EXPIRED, EXECUTED
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ
 );
 ```
 
@@ -582,29 +754,30 @@ Stores broker-ready order drafts.
 CREATE TABLE IF NOT EXISTS order_draft (
     draft_id TEXT PRIMARY KEY,
     plan_id TEXT,
-    broker TEXT DEFAULT 'SCHWAB',
+    replaces_draft_id TEXT,
+    broker TEXT NOT NULL,
     account_id TEXT,
 
     symbol TEXT NOT NULL,
     instruction TEXT,           -- BUY, SELL
     order_type TEXT,            -- MARKET, LIMIT, STOP, STOP_LIMIT
-    quantity DOUBLE,
+    quantity DECIMAL(20, 8),
 
-    limit_price DOUBLE,
-    stop_price DOUBLE,
-    stop_limit_price DOUBLE,
+    limit_price DECIMAL(20, 6),
+    stop_price DECIMAL(20, 6),
+    stop_limit_price DECIMAL(20, 6),
 
     time_in_force TEXT DEFAULT 'DAY', -- DAY, GTC
     session TEXT DEFAULT 'NORMAL',
 
     status TEXT DEFAULT 'PENDING_REVIEW',
-    -- PENDING_REVIEW, APPROVED, REJECTED, SUBMITTED, CANCELED, FAILED
+    -- See OrderDraftStatus enum and transitions in section 15
 
     broker_order_id TEXT,
-    raw_payload TEXT,
+    raw_payload JSON,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ
 );
 ```
 
@@ -627,14 +800,16 @@ CREATE TABLE IF NOT EXISTS approval_record (
     draft_id TEXT,
     plan_id TEXT,
 
-    decision TEXT,              -- APPROVED, REJECTED, MODIFIED
+    decision TEXT,              -- APPROVED, REJECTED, MODIFIED, DEFERRED
     decision_note TEXT,
 
-    approved_quantity DOUBLE,
-    approved_limit_price DOUBLE,
-    approved_stop_price DOUBLE,
+    approved_quantity DECIMAL(20, 8),
+    approved_limit_price DECIMAL(20, 6),
+    approved_stop_price DECIMAL(20, 6),
+    approved_stop_limit_price DECIMAL(20, 6),
+    approved_payload JSON, -- Exact reviewed order including account, side, session and TIF
 
-    decided_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    decided_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -653,17 +828,17 @@ CREATE TABLE IF NOT EXISTS daily_cio_brief (
     brief_id TEXT PRIMARY KEY,
     brief_date DATE NOT NULL,
 
-    market_summary TEXT,
-    portfolio_summary TEXT,
-    risk_summary TEXT,
-    trade_plan_summary TEXT,
-    order_draft_summary TEXT,
+    market_summary JSON,
+    portfolio_summary JSON,
+    risk_summary JSON,
+    trade_plan_summary JSON,
+    order_draft_summary JSON,
     final_recommendation TEXT,
 
     markdown_path TEXT,
-    json_payload TEXT,
+    journal_reminders JSON,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -690,25 +865,32 @@ CREATE TABLE IF NOT EXISTS journal_entry (
     journal_date DATE NOT NULL,
 
     symbol TEXT,
+    account_id TEXT,
     plan_id TEXT,
     draft_id TEXT,
+    transaction_id TEXT,
 
-    entry_type TEXT,            -- DAILY, TRADE, REVIEW, NOTE
+    entry_type TEXT,            -- DAILY, TRADE_PLAN_REVIEW, ORDER_REVIEW, etc.
     action TEXT,
 
     thesis TEXT,
     decision_reason TEXT,
     user_note TEXT,
+    system_note TEXT,
 
     market_regime TEXT,
+    strategy_type TEXT,
     confidence DOUBLE,
+
+    emotion_tag TEXT,           -- CALM, FEARFUL, FOMO, FRUSTRATED, CONFIDENT
+    discipline_score DOUBLE,    -- 0-100
 
     outcome_5d DOUBLE,
     outcome_20d DOUBLE,
     outcome_60d DOUBLE,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ
 );
 ```
 
@@ -723,23 +905,86 @@ CREATE TABLE IF NOT EXISTS performance_review (
     review_id TEXT PRIMARY KEY,
     review_date DATE NOT NULL,
 
+    review_type TEXT,            -- WEEKLY, MONTHLY, QUARTERLY, STRATEGY, ACCOUNT, BEHAVIOR
     strategy_type TEXT,
+    account_id TEXT,
+
     period_start DATE,
     period_end DATE,
 
     trade_count INTEGER,
+    plan_count INTEGER,
+    approved_count INTEGER,
+    rejected_count INTEGER,
+
     win_rate DOUBLE,
     average_return DOUBLE,
     median_return DOUBLE,
     max_drawdown DOUBLE,
+    average_risk_reward DOUBLE,
+
     best_trade_symbol TEXT,
     worst_trade_symbol TEXT,
 
     summary TEXT,
+    lessons TEXT,
+    next_actions TEXT,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
+
+---
+
+## 12.3 trade_outcome
+
+Canonical schema adopted from doc 08. Plan outcomes and actual execution outcomes
+are distinct observations; do not combine their counts or returns. Reference-price
+and partial-fill accounting policies remain to be agreed before Phase 6 outcomes.
+
+```sql
+CREATE TABLE IF NOT EXISTS trade_outcome (
+    outcome_id TEXT PRIMARY KEY,
+
+    plan_id TEXT,
+    draft_id TEXT,
+    transaction_id TEXT,
+    symbol TEXT,
+    account_id TEXT,
+
+    reference_date DATE NOT NULL,
+    reference_price DOUBLE,
+
+    outcome_date_5d DATE,
+    outcome_price_5d DOUBLE,
+    outcome_return_5d DOUBLE,
+    max_drawdown_5d DOUBLE,
+    max_runup_5d DOUBLE,
+
+    outcome_date_20d DATE,
+    outcome_price_20d DOUBLE,
+    outcome_return_20d DOUBLE,
+    max_drawdown_20d DOUBLE,
+    max_runup_20d DOUBLE,
+
+    outcome_date_60d DATE,
+    outcome_price_60d DOUBLE,
+    outcome_return_60d DOUBLE,
+    max_drawdown_60d DOUBLE,
+    max_runup_60d DOUBLE,
+
+    outcome_label TEXT,          -- WIN, LOSS, FLAT, MISSED_OPPORTUNITY, AVOIDED_LOSS
+    lesson TEXT,
+
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ
+);
+```
+
+The outcome_* fields in journal_entry are derived display summaries. trade_outcome
+owns the calculation; update summaries atomically and test equality. Outcome
+returns, benchmarks, and decision-quality metrics must have documented units and
+reference-price rules before their implementation.
 
 ---
 
@@ -763,7 +1008,7 @@ CREATE TABLE IF NOT EXISTS backtest_run (
     universe TEXT,
     parameters TEXT,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -812,7 +1057,7 @@ CREATE TABLE IF NOT EXISTS backtest_metric (
     average_trade_return DOUBLE,
     trade_count INTEGER,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -834,29 +1079,13 @@ shared/models/
 └── brief.py
 ```
 
-Example:
-
-```python
-from pydantic import BaseModel
-from datetime import date
-from typing import Optional
-
-
-class TradePlan(BaseModel):
-    plan_id: str
-    symbol: str
-    plan_date: date
-    action: str
-    strategy_type: Optional[str] = None
-    thesis: Optional[str] = None
-    entry_condition: Optional[str] = None
-    entry_price: Optional[float] = None
-    stop_price: Optional[float] = None
-    position_size_percent: Optional[float] = None
-    confidence: Optional[float] = None
-    invalid_condition: Optional[str] = None
-    status: str = "DRAFT"
-```
+Models use the canonical enums in section 15. TradePlan keeps the nested API
+shape illustrated in doc 06; persistence mapping is defined in section 2.3.
+Exit plans use the same TradePlan model with exit_trigger, replacement, and
+future_reentry_account. Order prices and quantities use Decimal in Python and
+DECIMAL in SQL; indicator calculations may use floating point.
+DailyCioBrief exports are assembled from stored summary sections; there is no
+second writable json_payload copy.
 
 ---
 
@@ -912,9 +1141,122 @@ updated_at
 
 ---
 
+
+## Canonical Enums and Status Transitions
+
+These values consolidate the existing documents. Implementation uses shared/enums
+and repository validation; SQL comments alone do not enforce enums.
+SUBMITTING, EXPIRED, and UNKNOWN in the order lifecycle are recommended additions
+to cover expiry and ambiguous submission outcomes. The transition policy below
+is part of the proposed alignment baseline.
+
+| Enum | Values |
+|---|---|
+| Broker | SCHWAB, VANGUARD, MANUAL |
+| AccountType | TAXABLE, TRADITIONAL_IRA, ROTH_IRA, OTHER |
+| AccountRole | CORE_PASSIVE, ACTIVE_TRADING, RETIREMENT_INDEX, CASH_RESERVE, MANUAL |
+| IndividualStockPolicy | EXIT_ONLY, ACTIVE_ALLOWED |
+| Action | HOLD, WATCH, ADD, REDUCE, EXIT, RE_ENTRY, AVOID, EXIT_ONLY |
+| StrategyType | INDEX_DCA, TREND_FOLLOWING, RANGE_TRADING, FALSE_BREAKDOWN_REENTRY, GAP_CONTINUATION, GAP_EXHAUSTION_AVOID, VANGUARD_EXIT_ONLY, ACCOUNT_MIGRATION, RISK_REDUCTION, EARNINGS_RISK_CONTROL |
+| StopType | NONE, PRICE_STOP, STOP_LIMIT, STRUCTURE_CONFIRMATION, TIME_STOP |
+| OrderType | MARKET, LIMIT, STOP, STOP_LIMIT |
+| OrderInstruction | BUY, SELL |
+| TimeInForce | DAY, GTC |
+| Session | NORMAL, EXTENDED |
+| TradePlanStatus | DRAFT, REVIEWED, APPROVED, REJECTED, EXPIRED, EXECUTED |
+| OrderDraftStatus | PENDING_REVIEW, APPROVED, REJECTED, MODIFIED, DEFERRED, EXPIRED, SUBMITTING, SUBMITTED, PARTIALLY_FILLED, FILLED, CANCELED, FAILED, UNKNOWN |
+| ApprovalDecision | APPROVED, REJECTED, MODIFIED, DEFERRED |
+| JournalEntryType | DAILY, SIGNAL_REVIEW, TRADE_PLAN_REVIEW, ORDER_REVIEW, TRADE_EXECUTION, MANUAL_NOTE, WEEKLY_REVIEW, MONTHLY_REVIEW, PERFORMANCE_REVIEW, BEHAVIOR_REVIEW, ACCOUNT_MIGRATION |
+| TransactionType | BUY, SELL, DIVIDEND, TRANSFER, FEE, INTEREST, CASH_SWEEP, OTHER |
+| TransactionSource | API, CSV, MANUAL |
+| MarketRegime | TREND_UP, TREND_DOWN, RANGE, HIGH_RISK |
+| TrendState | STRONG_UP, WEAK_UP, RANGE, WEAK_DOWN, STRONG_DOWN |
+| PriceLocation | ABOVE_MA200, BELOW_MA200, NEAR_MA200 |
+| GapType | NONE, BREAKAWAY, EXHAUSTION, SHAKEOUT, PANIC |
+| GapDirection | UP, DOWN, NONE |
+| SignalComponent | TREND, GAP, VOLUME, BREAKDOWN, RISK, FUNDAMENTAL, PORTFOLIO, EXECUTION |
+| ReviewType | WEEKLY, MONTHLY, QUARTERLY, STRATEGY, ACCOUNT, BEHAVIOR |
+| EmotionTag | CALM, FEARFUL, FOMO, FRUSTRATED, CONFIDENT |
+| OutcomeLabel | WIN, LOSS, FLAT, MISSED_OPPORTUNITY, AVOIDED_LOSS |
+| ErrorType | DATA_MISSING, DATA_STALE, AUTH_ERROR, BROKER_API_ERROR, CSV_PARSE_ERROR, VALIDATION_ERROR, DUPLICATE_ORDER, INSUFFICIENT_CASH, INSUFFICIENT_POSITION, RISK_RULE_BLOCKED, USER_APPROVAL_REQUIRED, UNKNOWN |
+
+DailySignal.action_hint uses Action, with account restrictions applied only by
+the planner. IntradaySignal.action_hint is a separate execution vocabulary:
+WAIT_FOR_LIMIT_ENTRY is the currently illustrated value. The remaining hourly
+vocabulary is deferred until hourly behavior is specified; do not add execution
+hints to Action. Optional hourly indicators/signals may be carried as messages;
+persistent tables for them are outside the current MVP schema. A plan requiring
+hourly confirmation must remain WATCH until the required hourly conditions are
+confirmed with valid data. Missing, stale, or unconfirmed hourly evidence cannot
+be replaced by a daily-only fallback or a conditional order draft.
+
+MessageType values: MARKET_DATA_SNAPSHOT, INTRADAY_PRICE_SNAPSHOT, DAILY_INDICATOR,
+HOURLY_INDICATOR, DAILY_SIGNAL, INTRADAY_SIGNAL, PORTFOLIO_SNAPSHOT,
+BROKER_TRANSACTION, RISK_SNAPSHOT, TRADE_PLAN, ORDER_DRAFT, APPROVAL_DECISION,
+DAILY_CIO_BRIEF, JOURNAL_ENTRY, PERFORMANCE_REVIEW, ERROR.
+Exit/re-entry plans are TRADE_PLAN payloads, not separate message types.
+
+| Old wording | Canonical interpretation |
+|---|---|
+| TREND / RANGE / FALSE_BREAKDOWN strategy | TREND_FOLLOWING / RANGE_TRADING / FALSE_BREAKDOWN_REENTRY |
+| GAP strategy | Choose GAP_CONTINUATION or GAP_EXHAUSTION_AVOID explicitly |
+| FUNDAMENTAL strategy | No automatic mapping; select an agreed strategy before implementation |
+| STOP in plan stop_type | PRICE_STOP; STOP remains a broker OrderType |
+| ROTH / IRA account type | ROTH_IRA / TRADITIONAL_IRA |
+| NOTE journal entry | MANUAL_NOTE |
+| TRADE / REVIEW journal entry | Select the specific execution/review entry type; do not guess |
+| EXIT_ONLY | Account restriction or migration plan action, never a broker instruction |
+
+PRICE_STOP can produce a STOP broker intent after review. STRUCTURE_CONFIRMATION
+and TIME_STOP are monitored planning rules; they cannot be sent as broker order
+types. A triggered rule generates a new reviewable SELL intent. VANGUARD_EXIT_ONLY
+is a legacy-stock monitoring strategy; ACCOUNT_MIGRATION additionally tracks
+replacement allocation. EXIT_ONLY alone does not mean "sell immediately."
+
+Trade plan transitions:
+
+- DRAFT -> REVIEWED.
+- REVIEWED -> APPROVED or REJECTED.
+- DRAFT, REVIEWED, or APPROVED -> EXPIRED when invalid or superseded, after any active broker orders are reconciled.
+- APPROVED -> EXECUTED only after confirmed completion of its intended execution.
+- REJECTED, EXPIRED, and EXECUTED do not transition to another state.
+- Approving a plan does not authorize a broker order; draft approval is separate.
+
+Order draft transitions:
+
+| Current state | Allowed next states / meaning |
+|---|---|
+| PENDING_REVIEW | APPROVED, REJECTED, DEFERRED, MODIFIED, EXPIRED |
+| DEFERRED | PENDING_REVIEW, REJECTED, MODIFIED, EXPIRED |
+| APPROVED | SUBMITTING after revalidation; MODIFIED or EXPIRED before submission |
+| SUBMITTING | SUBMITTED, REJECTED (broker rejection), FAILED (confirmed not accepted), UNKNOWN |
+| UNKNOWN | Reconcile to SUBMITTED, PARTIALLY_FILLED, FILLED, CANCELED, REJECTED, or FAILED from broker evidence |
+| SUBMITTED | PARTIALLY_FILLED, FILLED, CANCELED, REJECTED, UNKNOWN |
+| PARTIALLY_FILLED | PARTIALLY_FILLED for additional fills, FILLED, CANCELED, UNKNOWN |
+| REJECTED, MODIFIED, EXPIRED, FILLED, CANCELED, FAILED | Terminal for that draft ID |
+
+A MODIFIED decision retires the old draft and creates a new PENDING_REVIEW draft
+with replaces_draft_id. The new draft requires fresh approval. Approved fields
+are immutable; approved_payload binds approval to account, symbol, instruction,
+type, quantity, all prices, session, and time-in-force. The approved_* scalar
+fields are projections of that same snapshot and must match it.
+
+A timeout is UNKNOWN, not evidence of failure. Do not blindly resubmit UNKNOWN
+orders. Reconcile broker acceptance and fills first. Approval decisions are
+append-only; use the latest applicable decision for that exact immutable draft.
+Track partial fills as distinct broker transactions. A canceled remainder does
+not erase earlier fills, and a partially filled plan is not yet EXECUTED.
+
+Journal outcome milestones describe which metrics are available; they are not a
+journal status enum or an approval state machine.
+
+---
+
 # 16. ID Generation Rules
 
-Use deterministic readable IDs where possible.
+Use deterministic readable IDs where possible. Include account and strategy for
+plans and drafts; use a stable input identity for reruns and a new ID for changed
+intent. Never overwrite an approved intent to make a rerun idempotent.
 
 Examples:
 
@@ -943,6 +1285,8 @@ Purpose:
 - Create indexes
 - Insert default watchlists
 - Insert default symbols
+- Insert VANGUARD_ROTH (CORE_PASSIVE) and SCHWAB_ROTH (ACTIVE_TRADING)
+- Load account policies from config/accounts.yaml
 
 Default watchlists:
 
@@ -959,6 +1303,7 @@ Default symbols:
 ```text
 SPY
 QQQ
+VOO
 MSFT
 AAPL
 NVDA
@@ -1026,18 +1371,18 @@ backup/
 
 # 20. Future Database Evolution
 
-## Phase 1
+## MVP Storage
 
 DuckDB only.
 
-## Phase 2
+## Optional Application-State Split
 
 DuckDB + SQLite.
 
 - DuckDB for analytics
 - SQLite for application state and broker workflow
 
-## Phase 3
+## Optional Server Storage
 
 DuckDB + PostgreSQL.
 

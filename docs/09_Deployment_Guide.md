@@ -30,53 +30,29 @@ The deployment must support:
 - DuckDB-based storage
 - Markdown / JSON report generation
 - CSV import from Vanguard and Schwab
-- Optional Schwab read-only API integration
+- Schwab read-only API only after local CSV, pipeline, and dashboard are stable
 - Future order draft approval workflow
 - Safe handling of broker credentials
 - Easy backup and recovery
 
 ---
 
-# 3. Deployment Phases
+# 3. Deployment Milestones
 
-## Phase 1: Local MVP
+[Doc 10](10_TDD_Development_Plan_and_Codex_Prompts.md) is the canonical execution
+plan. Deployment milestones use its phase numbers.
 
-```text
-Local Python environment
-DuckDB database
-Markdown reports
-CSV imports
-No broker order submission
-```
+| Build phases | Deployment |
+|---|---|
+| 0-9 | Local Python, DuckDB, reports, CSV imports, and order draft/approval services |
+| 10 | Verified end-to-end daily pipeline |
+| 11 | Localhost-only Streamlit dashboard with manual approval workflow |
+| 12 | Schwab read-only API, after CSV, pipeline, and dashboard are stable |
+| 13 | Approved Schwab submission after read-only integration is verified |
 
-## Phase 2: Local Dashboard
-
-```text
-Streamlit Dashboard
-Localhost access only
-DuckDB backend
-Manual approval workflow
-```
-
-## Phase 3: Home Server or Cloud VM
-
-```text
-Scheduled daily jobs
-Persistent server
-Remote dashboard access
-Secure authentication
-Encrypted secrets
-```
-
-## Phase 4: Broker Integration
-
-```text
-Read-only first
-Order draft generation second
-Manual approval submission last
-```
-
----
+Home-server/cloud deployment is optional future work. Remote access would need
+its own authentication and secrets design; it is not a prerequisite for Phase 12.
+Vanguard remains CSV import and manual execution.
 
 # 4. Recommended Local Environment
 
@@ -205,7 +181,7 @@ data/db/*.duckdb
 data/db/*.wal
 logs/
 outputs/
-imports/raw/
+imports/
 backup/
 ```
 
@@ -288,6 +264,10 @@ SCHWAB_ROTH
 
 # 11. Configuration Files
 
+Doc 04 is the only schema authority. Account settings live in accounts.yaml;
+broker capabilities live in broker.yaml. Both must allow an action. The global
+ORDER_SUBMISSION_ENABLED flag can disable submission but cannot bypass either.
+
 ## config/app.yaml
 
 ```yaml
@@ -301,6 +281,10 @@ app:
     - json
 ```
 
+America/Chicago is fixed for the application and scheduler, including during
+travel. Never infer it from the host timezone. Persist UTC instants and use
+exchange-session dates as specified in doc 04.
+
 ## config/accounts.yaml
 
 ```yaml
@@ -313,9 +297,7 @@ accounts:
     order_draft_enabled: false
     api_sync_enabled: false
     csv_import_enabled: true
-    default_replacement:
-      VOO: 0.7
-      QQQ: 0.3
+    default_replacement: null  # Allocation is undecided; no implicit 70/30 default
 
   SCHWAB_ROTH:
     broker: SCHWAB
@@ -325,6 +307,9 @@ accounts:
     order_draft_enabled: true
     api_sync_enabled: false
 ```
+
+Replacement ratios elsewhere in the docs are examples only. A null allocation
+allows exit monitoring but leaves replacement amounts unallocated.
 
 ## config/symbols.yaml
 
@@ -356,8 +341,13 @@ risk:
   max_trade_risk_percent: 0.005
   min_risk_reward_ratio: 2.0
   block_new_entry_before_earnings_days: 5
-  min_confidence_for_order_draft: 70
+  min_entry_confidence_for_order_draft: 70
 ```
+
+Position-size and new-trade-weight limits use individual account equity. Combined
+portfolio exposure is checked separately; its exact limits remain to be agreed.
+The entry-confidence setting applies to ADD / RE_ENTRY only. REDUCE / EXIT uses
+separate exit rules. Required hourly confirmation cannot be bypassed.
 
 ## config/broker.yaml
 
@@ -386,6 +376,10 @@ MVP command:
 python scripts/run_daily_pipeline.py
 ```
 
+Before running, load the latest broker CSV/manual snapshots. Missing or stale
+portfolio inputs must be surfaced in the brief; the executable-draft freshness
+policy must be agreed before Phase 9.
+
 Pipeline:
 
 ```text
@@ -394,7 +388,7 @@ Pipeline:
 3. Download market data
 4. Calculate indicators
 5. Generate signals
-6. Generate trade plans
+6. Generate trade plans using imported positions, cash, and account policies
 7. Generate order drafts if eligible
 8. Generate Daily CIO Brief
 9. Write journal records
@@ -435,15 +429,16 @@ Importer flow:
 2. Normalize columns
 3. Validate records
 4. Write normalized CSV
-5. Insert into DuckDB
-6. Archive raw file
+5. Preview records and obtain user confirmation
+6. Insert confirmed records into DuckDB
+7. Archive raw file
 ```
 
 ---
 
 # 14. Streamlit Dashboard Deployment
 
-Phase 2 command:
+Phase 11 command:
 
 ```bash
 streamlit run apps/dashboard.py
@@ -477,7 +472,7 @@ Recommended run time:
 
 ```text
 After market close
-5:30 PM Central Time
+5:30 PM America/Chicago, after a completed market session
 ```
 
 Command:
@@ -487,9 +482,17 @@ cd C:\path\to\personal-cio-system
 .\.venv\Scripts\python.exe scripts\run_daily_pipeline.py
 ```
 
+Configure the scheduler with an explicit America/Chicago timezone and daylight
+saving behavior. A host-local 17:30 trigger is insufficient on a travel laptop.
+Skip non-trading sessions and incomplete bars using the exchange calendar.
+
 ## cron on macOS / Linux
 
+Only use this example where the scheduler supports CRON_TZ; otherwise configure
+an explicitly timezone-aware scheduler. Do not silently fall back to host time.
+
 ```cron
+CRON_TZ=America/Chicago
 30 17 * * 1-5 cd /path/to/personal-cio-system && .venv/bin/python scripts/run_daily_pipeline.py
 ```
 
@@ -506,7 +509,9 @@ outputs/
 imports/normalized/
 ```
 
-Do not backup raw broker files to cloud unless encrypted.
+Broker data in raw, normalized, archived, database, and report form is private.
+Encrypt any cloud backups containing it. Perform consistent backups while the
+coordinated writer is quiescent and test restoration.
 
 Recommended:
 
@@ -559,27 +564,27 @@ All broker orders must require user approval.
 
 # 18. Schwab API Deployment Notes
 
-## Phase 1
+## Local MVP (Phases 0-11)
 
 ```env
 SCHWAB_API_ENABLED=false
 ```
 
-## Phase 2: Read-only sync
+## Phase 12: Read-only sync
 
 ```env
 SCHWAB_API_ENABLED=true
 ORDER_SUBMISSION_ENABLED=false
 ```
 
-## Phase 3: Approved submission only
+## Phase 13: Approved submission only
 
 ```env
 SCHWAB_API_ENABLED=true
 ORDER_SUBMISSION_ENABLED=true
 ```
 
-Even in Phase 3:
+Even in Phase 13:
 
 ```text
 Only approved order drafts can be submitted.
@@ -663,7 +668,8 @@ Before enabling Schwab order submission:
 [ ] Order draft creation works
 [ ] User approval workflow works
 [ ] Rejected drafts cannot be submitted
-[ ] Modified drafts are revalidated
+[ ] Modified drafts create a fresh draft and require new approval
+[ ] UNKNOWN submission outcomes reconcile without blind retries
 [ ] Duplicate order protection works
 [ ] Insufficient cash check works
 [ ] Insufficient position check works
@@ -769,7 +775,8 @@ Date format issue
 Check:
 
 ```text
-Confidence threshold
+Entry confidence threshold or protective-exit eligibility
+Required hourly confirmation
 Account role
 Risk rule block
 Event risk block

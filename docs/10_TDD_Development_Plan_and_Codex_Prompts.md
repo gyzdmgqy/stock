@@ -1,5 +1,5 @@
 # Personal CIO System
-## TDD Development Plan & Codex Prompt Playbook V1.0
+## TDD Development Plan & Codex Prompt Playbook V1.1
 
 ---
 
@@ -14,7 +14,9 @@ TDD is especially suitable because the system has many deterministic rules:
 - Vanguard account must be CORE_PASSIVE / EXIT_ONLY.
 - Schwab account must be ACTIVE_TRADING.
 - No order can be submitted without explicit approval.
-- Confidence below threshold must not generate an order draft.
+- ADD / RE_ENTRY below the entry-confidence threshold must not generate a draft.
+- REDUCE / EXIT uses separate protective-exit eligibility rules.
+- Plans requiring hourly confirmation remain WATCH without a draft until confirmed.
 - Daily signals drive direction.
 - Hourly signals improve execution.
 - Every trade plan must have invalid conditions.
@@ -53,7 +55,23 @@ Follow TDD:
 
 ---
 
-# 3. Recommended Development Order
+# 3. Canonical Development Order
+
+This is the single authoritative build sequence. Other documents describe module
+capabilities or deployment environments and must not define competing phase
+numbers. The canonical schema and persisted enums live in doc 04.
+
+Runtime order is market data -> analysis -> trade planner -> broker gateway order
+drafts -> CIO brief -> journal. Build order below allows isolated development
+with fixtures before later modules exist.
+
+The MVP milestone is completion of Phases 0-11. Phase 12 may start only after
+CSV import, the end-to-end daily pipeline, and the dashboard are stable and
+verified. Phase 13 follows verified read-only integration. Home-server/cloud
+hosting is optional and does not gate these phases.
+
+Application timezone is America/Chicago on every host. Tests must prove changing
+the host timezone does not change report scheduling or business dates.
 
 The project should not start with Schwab API or Agent orchestration.
 
@@ -61,7 +79,7 @@ Recommended order:
 
 ```text
 Phase 0: Repository Foundation
-Phase 1: Shared Models and Config
+Phase 1: Shared Models and Enums
 Phase 2: DuckDB Database Initialization
 Phase 3: Market Data Service
 Phase 4: Analysis Engine
@@ -70,9 +88,10 @@ Phase 6: Investment Journal
 Phase 7: Personal CIO Brief Generator
 Phase 8: Broker Gateway CSV Import
 Phase 9: Broker Gateway Order Draft Safety
-Phase 10: Streamlit Dashboard / CLI
-Phase 11: Schwab Read-Only API
-Phase 12: Approved Order Submission
+Phase 10: End-to-End Daily Pipeline
+Phase 11: Streamlit Dashboard
+Phase 12: Schwab Read-Only API
+Phase 13: Approved Order Submission
 ```
 
 ---
@@ -88,7 +107,7 @@ This is a local-first, single-user, Human-in-the-Loop investment decision assist
 
 Before writing code, read these docs under docs/:
 
-- 01_Product_Requirements.md
+- 01_Product_Requirements_Personal_CIO_System_V2.md
 - 02_System_Architecture.md
 - 03_Repository_Bootstrap_Plan.md
 - 04_Database_Design.md
@@ -141,7 +160,7 @@ personal-cio-system/
 ├── market-data-service/
 ├── analysis-engine/
 ├── trade-planner/
-├── broker-gateway-schwab/
+├── broker-gateway/
 ├── personal-cio-agent/
 ├── investment-journal/
 ├── config/
@@ -178,7 +197,7 @@ Tasks:
 1. Create the monorepo folder structure described in the docs.
 2. Add requirements.txt with MVP dependencies.
 3. Add pyproject.toml configured for pytest, black, and ruff.
-4. Add .gitignore that excludes .env, DuckDB files, logs, outputs, raw imports, backups, and virtual environments.
+4. Add .gitignore that excludes .env, DuckDB files, logs, outputs, all private imports (raw, normalized, archived), backups, and virtual environments.
 5. Add sample config files:
    - config/app.yaml
    - config/accounts.yaml
@@ -237,7 +256,7 @@ Read:
 Follow TDD.
 
 Tasks:
-1. Create shared/enums/ with account role, action, strategy type, order type, order status, broker, transaction type, message type.
+1. Create shared/enums/ from the complete canonical registry in doc 04, including separate planning StopType and broker OrderType.
 2. Create shared/models/ with Pydantic models:
    - DailyPrice
    - IntradayPrice
@@ -253,7 +272,8 @@ Tasks:
 3. Create unit tests under tests/unit/shared/ to validate:
    - enum constraints
    - required fields
-   - default statuses
+   - default statuses and allowed state transitions
+   - modified orders need a new draft and fresh approval
    - invalid values fail validation
    - Vanguard account role can be represented as CORE_PASSIVE
    - Schwab account role can be represented as ACTIVE_TRADING
@@ -298,18 +318,22 @@ Tasks:
 1. Write tests first under tests/unit/database/test_init_db.py.
 2. Tests should use a temporary DuckDB path, not the real data/db path.
 3. Implement scripts/init_db.py and a reusable database module under shared/db/.
-4. Create tables from docs/04_Database_Design.md, including:
+4. Create every table from docs/04_Database_Design.md (the canonical schema), including:
    - symbol
    - watchlist
    - watchlist_symbol
    - daily_price
    - intraday_price
+   - corporate_event
+   - macro_event
+   - news_item
    - daily_indicator
    - daily_signal
    - signal_detail
    - portfolio_account
    - portfolio_position_snapshot
    - portfolio_risk_snapshot
+   - portfolio_cash_snapshot
    - broker_transaction
    - trade_plan
    - trade_plan_signal_link
@@ -327,7 +351,8 @@ Tasks:
 6. Insert default accounts:
    - VANGUARD_ROTH: CORE_PASSIVE
    - SCHWAB_ROTH: ACTIVE_TRADING
-7. Make init idempotent.
+7. Make init idempotent; define versioned migration handling for later schema changes.
+   Test persistence round trips for nested TradePlan fields and the richer journal.
 8. Run pytest.
 
 Do not implement market data download yet.
@@ -468,7 +493,8 @@ Generate structured, human-reviewable trade plans.
 
 - Vanguard individual stocks are EXIT_ONLY.
 - Schwab active trading can generate ADD / REDUCE / EXIT / RE_ENTRY.
-- Confidence below threshold does not generate order draft.
+- ADD / RE_ENTRY below the entry-confidence threshold does not generate a draft.
+- REDUCE / EXIT uses separate protective-exit rules.
 - WATCH usually does not generate order draft.
 - Every plan must have invalid conditions.
 - Daily direction, hourly execution.
@@ -478,8 +504,11 @@ Generate structured, human-reviewable trade plans.
 - Vanguard BUY individual stock is blocked.
 - Vanguard existing individual stock gets EXIT_ONLY plan.
 - Schwab high-confidence RE_ENTRY gets valid TradePlan.
-- Confidence < 50 creates no actionable plan.
-- Confidence 70+ is eligible for order draft.
+- Entry confidence < 50 creates no actionable entry plan.
+- Entry confidence 70+ passes only the entry-confidence gate; all other gates still apply.
+- A protective exit is not blocked merely by low entry confidence.
+- Missing, stale, or unsatisfied required hourly confirmation keeps the plan WATCH with no draft.
+- Position sizing uses account equity, with separate combined-exposure checks.
 - Earnings window blocks new entry.
 - Invalid condition is required.
 
@@ -508,11 +537,13 @@ Tasks:
    - VANGUARD_ROTH CORE_PASSIVE blocks new individual stock BUY.
    - VANGUARD_ROTH allows EXIT_ONLY plans.
    - SCHWAB_ROTH ACTIVE_TRADING allows active plans.
-4. Implement confidence gate:
-   - <50 no order draft eligibility
-   - 50-69 WATCH/small plan
-   - >=70 eligible for order draft
-5. Implement Vanguard Exit-Only plan generation with VOO/QQQ replacement.
+4. Implement action-specific eligibility:
+   - ADD / RE_ENTRY: <70 cannot generate an entry draft; >=70 passes only this gate
+   - REDUCE / EXIT: separate defined exit-trigger rules, not the entry-confidence cutoff
+   - Required hourly confirmation missing/stale/unsatisfied: WATCH, no draft
+   - Size from individual account equity and separately check combined exposure
+5. Implement Vanguard Exit-Only plans; replacement weights require explicit account configuration.
+   A null allocation leaves replacement amounts undecided; never assume 70/30.
 6. Implement Schwab false breakdown re-entry plan generation.
 7. Ensure every actionable plan includes invalid_condition.
 8. Persist trade_plan records to DuckDB.
@@ -656,17 +687,22 @@ Follow TDD.
 
 Tasks:
 1. Write tests first under tests/unit/broker_gateway/csv_import/.
-2. Create broker-gateway-schwab/src/csv_import/ with:
+2. Create broker-gateway/src/csv_import/ with:
    - base_importer.py
    - schwab_transaction_importer.py
    - vanguard_transaction_importer.py
+   - schwab_position_importer.py
+   - vanguard_position_importer.py
+   - cash_importer.py
    - normalizer.py
    - validators.py
-3. Implement normalized BrokerTransaction output.
+3. Implement normalized BrokerTransaction, position, and cash snapshot output.
+   Keep broker-specific format mapping under adapters/schwab/ and adapters/vanguard/.
 4. Insert transactions into broker_transaction table.
 5. Prevent duplicate imports.
 6. Archive imported files after successful import.
 7. Generate journal entries for imported executions.
+   Preview normalized records for user confirmation before committing the import.
 8. Run pytest.
 
 Do not connect Schwab API yet.
@@ -683,7 +719,9 @@ Convert eligible trade plans into broker-neutral order drafts.
 ## Tests
 
 - No draft without eligible action.
-- No draft when confidence below threshold.
+- No ADD / RE_ENTRY draft when entry confidence is below threshold.
+- Protective exits use their own rules; no entry-threshold inheritance.
+- No draft when required hourly confirmation is missing, stale, or unsatisfied.
 - No Vanguard individual BUY draft.
 - No duplicate draft.
 - BUY checks estimated cash if cash data exists.
@@ -705,7 +743,7 @@ Follow TDD.
 
 Tasks:
 1. Write tests first under tests/unit/broker_gateway/order_drafts/.
-2. Create broker-gateway-schwab/src/drafts/ with:
+2. Create broker-gateway/src/drafts/ with:
    - order_draft_service.py
    - order_draft_validator.py
    - duplicate_detector.py
@@ -714,7 +752,9 @@ Tasks:
    - no automatic submission
    - user approval required
    - Vanguard individual BUY blocked
-   - confidence threshold enforced
+   - entry-confidence threshold enforced for ADD / RE_ENTRY
+   - protective-exit triggers validated separately
+   - required hourly confirmation enforced, including conditional drafts
    - duplicate draft blocked
 5. Persist order_draft to DuckDB.
 6. Implement approval_record creation but not broker submission.
@@ -756,6 +796,7 @@ Tasks:
 3. Pipeline should:
    - load config
    - load symbols
+   - load imported portfolio positions, cash and account policies
    - load or download price data
    - calculate indicators
    - generate signals
@@ -825,7 +866,8 @@ Tasks:
 
 ## Goal
 
-Connect Schwab only in read-only mode.
+Connect Schwab only in read-only mode, after the Phase 8 CSV workflow, Phase 10
+pipeline, and Phase 11 dashboard have passed their acceptance checks.
 
 ## Tests
 
@@ -860,7 +902,9 @@ Do not implement order submission yet.
 
 ## Goal
 
-Only after the system is stable, allow approved Schwab order submission.
+Only after Phase 12 is verified, allow approved Schwab order submission.
+Implement doc 04's SUBMITTING/UNKNOWN reconciliation transitions and submission
+attempt tracking before enabling this phase.
 
 ## Tests
 
@@ -881,7 +925,9 @@ Tasks:
 1. Write tests first proving:
    - rejected drafts cannot submit
    - pending drafts cannot submit
-   - modified drafts must be revalidated
+   - modifications create a new PENDING_REVIEW draft and require new approval
+   - approval payload must match the exact immutable draft
+   - unknown submission outcomes reconcile before any retry
    - ORDER_SUBMISSION_ENABLED=false blocks submission
    - no approval record blocks submission
    - insufficient cash blocks BUY
@@ -890,7 +936,7 @@ Tasks:
 2. Implement submit_approved_order using mocked broker adapter first.
 3. Require:
    - draft.status == APPROVED
-   - approval_record exists
+   - latest applicable decision is APPROVED for this exact draft
    - ORDER_SUBMISSION_ENABLED == true
    - account role allows action
    - risk validation passes
@@ -966,7 +1012,8 @@ Expected Output:
 
 # 21. Immediate Next Step
 
-Start with Phase 0 and Phase 1.
+Complete the open design decisions in doc 11 before implementation. Then start
+with Phase 0 and Phase 1.
 
 Do not start with:
 

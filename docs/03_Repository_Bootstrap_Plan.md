@@ -21,9 +21,10 @@ Reason:
 - Easier AI-assisted development
 - Easier deployment
 
-Repository Name:
+Product name: personal-cio-system.
 
-personal-cio-system
+Current repository folder: Stock. Directory name is not part of application
+behavior; no repository rename is required by this plan.
 
 # 3. Monorepo Structure
 
@@ -32,7 +33,7 @@ personal-cio-system/
 ├── market-data-service/
 ├── analysis-engine/
 ├── trade-planner/
-├── broker-gateway-schwab/
+├── broker-gateway/
 ├── personal-cio-agent/
 ├── investment-journal/
 ├── shared/
@@ -64,6 +65,7 @@ shared/
 
 config/
 ├── app.yaml
+├── accounts.yaml
 ├── broker.yaml
 ├── symbols.yaml
 ├── risk.yaml
@@ -84,11 +86,8 @@ data/
 
 Database:
 
-Phase 1:
-- DuckDB
-
-Phase 2:
-- PostgreSQL
+MVP: DuckDB only; schema owned by doc 04.
+Future storage changes require a separate design decision.
 
 # 8. Testing Convention
 
@@ -173,12 +172,10 @@ Documentation drives implementation.
 
 # 14. Initial Development Order
 
-1. market-data-service
-2. analysis-engine
-3. trade-planner
-4. investment-journal
-5. personal-cio-agent
-6. broker-gateway-schwab
+[Doc 10](10_TDD_Development_Plan_and_Codex_Prompts.md) is the canonical build order.
+Begin with Phases 0-2 (repository, shared models/config, canonical database).
+The daily runtime pipeline is defined in doc 02 and does not dictate build order.
+Use fixtures for dependencies whose implementation comes in a later phase.
 
 # 15. Success Criteria
 
