@@ -5,6 +5,9 @@
 
 # 1. Purpose
 
+Phase 6 的接口、日志来源和回看口径见
+[投资日志实现说明](../investment-journal/README.md)。
+
 This document defines the design of the **Investment Journal** module for the Personal CIO System.
 
 The Investment Journal is responsible for recording, auditing, reviewing, and learning from all investment-related activities.
@@ -291,6 +294,11 @@ Suggested score interpretation:
 
 # 13. Outcome Evaluation Logic
 
+首版将计划日普通收盘价作为计划回看的起点，包括被拒绝的计划。成交以每笔成交价
+起算，买入后上涨和卖出后下跌为正值。按提供的交易日历取之后的第 5、20、60
+个交易日并限制在 `as_of` 以内。目标日缺价时不移到其他日期。缺少中间日价格
+只影响路径指标。计划回看和成交回看独立存储并更新对应日志摘要。
+
 The system should evaluate outcomes at multiple horizons:
 
 ```text
@@ -414,6 +422,9 @@ For each strategy, calculate:
 ---
 
 # 17. Benchmark Comparison
+
+Phase 6 在周报和月报中保留 VOO、QQQ、SPY 的 5、20、60 日占位项，
+后续再实现逐窗口超额收益计算。
 
 The Journal should compare active decisions against benchmarks.
 

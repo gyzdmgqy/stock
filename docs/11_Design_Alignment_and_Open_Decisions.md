@@ -81,13 +81,19 @@ implementation has started.
 - 连续两日收盘低于各自 MA200 触发保护性退出，账户单股超上限时提议减至上限。
 - 初始组合敞口上限为单股 8%、同板块 25%，独立于单账户仓位和单笔风险限制。
 
+## 已确认的 Phase 6 口径
+
+- 所有计划以计划日收盘价为回看起点，包括被拒绝的计划。
+- 真实成交以每笔成交价起算，买入看上涨方向，卖出看下跌方向。
+- 已实现盈亏、费用、股息、拆股调整及部分成交配对进入后续完整核算。
+
 ## Remaining Product Decisions
 
 | Decision | Recommendation / question | Needed before |
 |---|---|---|
 | 扩展交易策略 | 校准首版假跌破规则，明确 Vanguard 核心 ETF 的择时和辅助风险评分。 | 后续策略阶段 |
 | Event and freshness inputs | Which earnings/event source or manual calendar is available? Recommend blocking new-entry drafts when required event, price, position, or cash data is missing/stale; define maximum ages. | Phase 3-5 |
-| Outcome measurement | Separate plan forward returns from realized execution returns. Agree reference price, costs, dividends/splits, partial fills, and benchmark/horizon conventions. | Phase 6 |
+| 完整交易核算 | 确定持仓配对、费用和公司行动处理，并计算已实现净损益和基准超额收益。 | 后续复盘阶段 |
 | Vanguard migration | Allocation is undecided. Explain replacement of legacy-stock sale proceeds versus a whole-account target; agree assets, weights, observation period, and timing. 70/30 and 60/40 are examples, not defaults. | Phase 5 |
 | Approval validity | Agree expiry window and whether submission requires a separate user click after approval. Propose explicit submit plus fresh validation. | Phase 9-13 |
 | CSV samples | Obtain redacted format examples to define columns, cash signs, deduplication, and cross-source reconciliation. | Phase 8 |

@@ -953,9 +953,9 @@ CREATE TABLE IF NOT EXISTS performance_review (
 
 ## 12.3 trade_outcome
 
-Canonical schema adopted from doc 08. Plan outcomes and actual execution outcomes
-are distinct observations; do not combine their counts or returns. Reference-price
-and partial-fill accounting policies remain to be agreed before Phase 6 outcomes.
+计划回看与成交回看使用独立的 `outcome_id`。Phase 6 从计划日普通收盘价或
+逐笔成交价起算。收益、标的回撤和涨幅均使用小数比例。每笔部分成交独立回看。
+已实现净损益、费用及股息核算留待后续。结果和对应日志摘要在同一事务中更新。
 
 ```sql
 CREATE TABLE IF NOT EXISTS trade_outcome (
