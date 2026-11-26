@@ -283,6 +283,10 @@ CREATE TABLE IF NOT EXISTS watchlist_symbol (
 
 Stores historical OHLCV data.
 
+日线保留数据源关闭自动复权后提供的 OHLC，复权收盘价单独写入
+`adjusted_close`，缺失时为 `NULL`。`trade_date` 沿用数据源对应交易所的日期。
+使用 `(symbol, trade_date)` 更新行情，更正数据时保留原行的创建时间。
+
 ```sql
 CREATE TABLE IF NOT EXISTS daily_price (
     symbol TEXT NOT NULL,

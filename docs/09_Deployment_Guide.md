@@ -751,6 +751,10 @@ Close dashboard or pipeline process and retry.
 
 ## Market data missing
 
+Phase 3 可按[行情服务说明](../market-data-service/README.md)下载并查询日线。
+收到 `DATA_MISSING` 时，先检查标的代码、所选区间是否包含交易日，以及数据源
+是否覆盖该区间。yfinance 在限流时会返回可重试错误，可降低频率后重试。
+
 Check:
 
 ```text

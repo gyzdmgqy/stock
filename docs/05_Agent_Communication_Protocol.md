@@ -107,6 +107,11 @@ Consumes:
 
 Broker account, position, cash, and transaction imports belong to broker-gateway.
 
+Phase 3 的日线下载在起止交易日闭区间返回 `DailyPrice` 列表。
+空行情或标的缺失使用 `DATA_MISSING`，字段或日期无效使用 `VALIDATION_ERROR`。
+数据源限流使用可重试的 `UNKNOWN`。调用 `MarketDataError.to_message()` 可生成
+第 19 节的错误消息。
+
 ## 6.2 analysis-engine
 
 Produces:
