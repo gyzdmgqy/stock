@@ -2,7 +2,7 @@ from datetime import date
 
 from pydantic import Field, JsonValue
 
-from shared.enums import Action, MarketRegime, OrderDraftStatus
+from shared.enums import Action, MarketRegime, OrderDraftStatus, TradePlanStatus
 
 from ._types import Money, NonBlank, Score, SharedModel, TimestampedModel
 
@@ -30,12 +30,16 @@ class TradePlanSummary(SharedModel):
     symbol: NonBlank
     action: Action
     confidence: Score | None = None
+    account_id: NonBlank | None = None
+    status: TradePlanStatus | None = None
 
 
 class OrderDraftSummary(SharedModel):
     draft_id: NonBlank
     symbol: NonBlank
     status: OrderDraftStatus
+    account_id: NonBlank | None = None
+    plan_id: NonBlank | None = None
 
 
 class DailyCioBrief(TimestampedModel):

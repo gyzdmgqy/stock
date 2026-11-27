@@ -1,0 +1,70 @@
+# 每日 CIO 简报 · {{ brief.brief_date }}
+
+## 市场概览
+
+- 市场代理状态：{{ brief.market_summary.market_regime.value if brief.market_summary.market_regime else "待补齐" }}
+- 置信度：{{ brief.market_summary.confidence if brief.market_summary.confidence is not none else "待补齐" }}
+{% for point in brief.market_summary.key_points %}
+- {{ point | md_text }}
+{% endfor %}
+
+## 组合概览
+
+- 总净值：{{ brief.portfolio_summary.total_value | money }}
+- 核心账户净值：{{ brief.portfolio_summary.core_passive_value | money }}
+- 主动交易账户净值：{{ brief.portfolio_summary.active_trading_value | money }}
+{% if brief.portfolio_summary.key_positions %}
+
+| 账户 | 标的 | 市值 |
+|---|---|---:|
+{% for position in brief.portfolio_summary.key_positions %}
+| {{ position.account_id | md_text }} | {{ position.symbol | md_text }} | {{ position.market_value | money }} |
+{% endfor %}
+{% else %}
+- 当日简报未列出重点持仓。
+{% endif %}
+
+## 风险提示
+
+- 风险等级：{{ (brief.risk_summary.risk_level or "未分级") | md_text }}
+{% for risk in brief.risk_summary.key_risks %}
+- {{ risk | md_text }}
+{% else %}
+- 当日无已记录的风险提示。
+{% endfor %}
+
+## 交易计划
+
+{% if brief.trade_plan_summary %}
+| 账户 | 标的 | 计划 | 行动 | 状态 | 置信度 |
+|---|---|---|---|---|---:|
+{% for plan in brief.trade_plan_summary %}
+| {{ (plan.account_id or "未记录") | md_text }} | {{ plan.symbol | md_text }} | {{ plan.plan_id | md_text }} | {{ plan.action.value }} | {{ plan.status.value if plan.status else "未记录" }} | {{ plan.confidence if plan.confidence is not none else "待补齐" }} |
+{% endfor %}
+{% else %}
+当日无已记录的交易计划。
+{% endif %}
+
+## 订单草稿
+
+{% if brief.order_draft_summary %}
+| 账户 | 标的 | 草稿 | 关联计划 | 状态 |
+|---|---|---|---|---|
+{% for draft in brief.order_draft_summary %}
+| {{ (draft.account_id or "未记录") | md_text }} | {{ draft.symbol | md_text }} | {{ draft.draft_id | md_text }} | {{ (draft.plan_id or "未记录") | md_text }} | {{ draft.status.value }} |
+{% endfor %}
+{% else %}
+当日无已记录的订单草稿。
+{% endif %}
+
+## 日志提醒
+
+{% for reminder in brief.journal_reminders %}
+- {{ reminder | md_text }}
+{% else %}
+暂无往日日志提醒。
+{% endfor %}
+
+## 最终建议
+
+{{ brief.final_recommendation | md_text }}

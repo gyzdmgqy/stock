@@ -570,7 +570,7 @@ outputs/journal/monthly/2026-06_review.md
 
 # 22. Integration with Daily CIO Brief
 
-The Daily CIO Brief should include a small Journal section.
+Phase 7 简报的「日志提醒」展示业务日期之前最近五条可用记录，排除由简报生成的日志，避免上一份简报的内容被反复引用。生成简报本身不写入日志；后续流程可通过已有日记服务记录简报事件。
 
 Example:
 

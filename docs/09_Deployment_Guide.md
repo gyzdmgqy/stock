@@ -399,10 +399,13 @@ Expected outputs:
 
 ```text
 outputs/briefs/YYYY-MM-DD_Daily_CIO_Brief.md
+outputs/briefs/YYYY-MM-DD_Daily_CIO_Brief.json
 outputs/trade_plans/YYYY-MM-DD_trade_plans.json
 outputs/order_drafts/YYYY-MM-DD_order_drafts.json
 outputs/journal/YYYY-MM-DD_journal.json
 ```
+
+每日简报以 DuckDB 中的记录为准。对同一业务日期重跑会更新 Markdown 和 JSON，保留原简报 ID 和创建时间。独立调用方式见 [CIO 简报使用说明](../personal-cio-agent/README.md)。
 
 ---
 
