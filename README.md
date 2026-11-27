@@ -1,6 +1,6 @@
 # Personal CIO System
 
-个人投资决策辅助系统。项目采用本地优先的 Python 单仓库，由行情服务、分析引擎、交易规划、券商网关、CIO 简报和投资日志组成。Phase 10 已串联日线到简报和日志的本地流程；券商数据仍从 CSV 导入，不连接券商 API 或提交订单。
+个人投资决策辅助系统。项目采用本地优先的 Python 单仓库，由行情服务、分析引擎、交易规划、券商网关、CIO 简报和投资日志组成。Phase 11 已提供本地审阅仪表盘；券商数据仍从 CSV 导入，不连接券商 API 或提交订单。
 
 ## 本地启动
 
@@ -31,6 +31,8 @@ python3 -m venv .venv
 数据库测试使用临时文件。
 
 收盘后运行 `python scripts/run_daily_pipeline.py`。默认只补齐本地缺失的日线；加 `--offline` 可完全离线。持仓、现金导入及本地人工确认的用法见[每日流程部署说明](docs/09_Deployment_Guide.md#12-daily-local-run)。
+
+运行 `python -m streamlit run apps/dashboard.py --server.address 127.0.0.1`，在 [127.0.0.1:8501](http://127.0.0.1:8501) 查看简报和本地审批。见[仪表盘部署说明](docs/09_Deployment_Guide.md#14-streamlit-dashboard-deployment)。
 
 ## 开发约定
 

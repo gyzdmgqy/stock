@@ -123,7 +123,7 @@ jinja2
 pytest
 black
 ruff
-streamlit
+streamlit>=1.50,<2
 plotly
 ```
 
@@ -442,29 +442,19 @@ $env:PYTHONPATH = "broker-gateway/src;investment-journal/src;."
 
 # 14. Streamlit Dashboard Deployment
 
-Phase 11 command:
+在仓库根目录、使用同一个 Python 虚拟环境启动：
 
 ```bash
-streamlit run apps/dashboard.py
+python -m streamlit run apps/dashboard.py --server.address 127.0.0.1
 ```
 
-Dashboard pages:
+访问 [127.0.0.1:8501](http://127.0.0.1:8501)。数据库路径与日流程一致，`DATABASE_PATH` 可覆盖默认位置；未初始化时仪表盘不会新建数据库。仅允许环回地址，保留 XSRF 和 CORS 保护，不支持远程访问或发布。
 
-```text
-Daily CIO Brief
-Portfolio
-Trade Plans
-Order Drafts
-Journal
-Performance Review
-Settings
-```
+七页包括每日 CIO 简报、组合持仓、交易计划、订单草稿、投资日志、绩效复盘和只读设置。简报是生成时的记录，实时审批状态以订单草稿页为准。组合页面按所选业务日期读取快照，保留未知现金和实际零值的区别；绩效页只展示已入库的复盘和结果，不推测缺失值。
 
-Local URL:
+订单草稿页可批准、拒绝或延期；延期后可先恢复待审再批准。批准要求人工核对完整订单参数，由网关重新校验计划时效、仓位或资金，以及账户和券商权限。若页面显示的版本已变更，须重新审阅。草稿状态、`approval_record` 和对应 `journal_entry` 同事务写入，日志按芝加哥业务日期记录。没有券商 API 接入或订单提交操作。
 
-```text
-http://localhost:8501
-```
+浏览使用短连接，审批后关闭写连接；不要与 CSV 导入或日流程同时写同一数据库。设置页不展示凭据，也不能编辑风控或券商配置。
 
 ---
 
@@ -706,10 +696,10 @@ python scripts/run_daily_pipeline.py
 
 导入 CSV 见[第 13 节](#13-csv-import-workflow)。
 
-Run dashboard:
+运行本地仪表盘：
 
 ```bash
-streamlit run apps/dashboard.py
+python -m streamlit run apps/dashboard.py --server.address 127.0.0.1
 ```
 
 Run tests:

@@ -12,6 +12,7 @@ import yaml
 from duckdb import DuckDBPyConnection
 from pydantic import BaseModel, ValidationError
 
+from investment_journal.services.journal_service import JournalService
 from shared.db import get_trade_plan
 from shared.db.database import DEFAULT_CONFIG_DIR
 from shared.enums import ApprovalDecision as Decision
@@ -76,10 +77,12 @@ class OrderDraftService:
         decision_note: str | None = None,
         replacement: OrderSnapshot | None = None,
         as_of: datetime | None = None,
+        expected_draft: OrderDraft | None = None,
     ) -> ReviewResult:
         now = _evaluation_time(as_of)
         with self._transaction():
             draft = self._require_draft(draft_id, now)
+            _require_unchanged(draft, expected_draft)
             decision = Decision(decision)
             if (replacement is not None) != (decision is Decision.MODIFIED):
                 raise DraftError(
@@ -121,14 +124,20 @@ class OrderDraftService:
             if new is not None:
                 self._insert("order_draft", new)
             self._insert("approval_record", approval)
+            JournalService(self._db).record_approval(approval)
         return ReviewResult(approval, updated, new)
 
     def reopen_deferred(
-        self, draft_id: str, *, as_of: datetime | None = None
+        self,
+        draft_id: str,
+        *,
+        as_of: datetime | None = None,
+        expected_draft: OrderDraft | None = None,
     ) -> OrderDraft:
         now = _evaluation_time(as_of)
         with self._transaction():
             draft = self._require_draft(draft_id, now)
+            _require_unchanged(draft, expected_draft)
             pending = draft.transition_to(OrderDraftStatus.PENDING_REVIEW)
             self._check_current(pending, now)
             require_no_duplicate(self._db, pending, replacing=draft_id)
@@ -288,6 +297,11 @@ def _evaluation_time(as_of: datetime | None) -> datetime:
     if as_of.utcoffset() is None:
         raise DraftError(ErrorType.VALIDATION_ERROR, "评估时间必须包含时区。")
     return as_of.astimezone(UTC)
+
+
+def _require_unchanged(draft: OrderDraft, expected: OrderDraft | None) -> None:
+    if expected is not None and expected != draft:
+        raise DraftError(ErrorType.VALIDATION_ERROR, "草稿已变更，请刷新后重新审阅。")
 
 
 def _record(columns: tuple[str, ...], row: tuple) -> dict:
