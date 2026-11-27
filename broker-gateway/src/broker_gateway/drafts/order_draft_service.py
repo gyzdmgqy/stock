@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -171,23 +171,36 @@ class OrderDraftService:
         )
 
     def require_current_approval(
-        self, draft_id: str, *, as_of: datetime | None = None
+        self,
+        draft_id: str,
+        *,
+        as_of: datetime | None = None,
+        in_transaction: bool = False,
     ) -> ApprovalDecision:
         """仅核验当前本地批准，无任何提交行为。"""
         now = _evaluation_time(as_of)
-        with self._transaction():
+        with nullcontext() if in_transaction else self._transaction():
             draft = self._require_draft(draft_id, now)
-            row = self._db.execute(
+            rows = self._db.execute(
                 f"SELECT {', '.join(_APPROVAL_COLUMNS)} FROM approval_record "
-                "WHERE draft_id = ? ORDER BY decided_at DESC, decision = 'APPROVED' DESC, "
-                "approval_id DESC LIMIT 1",
+                "WHERE draft_id = ? ORDER BY decided_at DESC NULLS LAST, approval_id DESC LIMIT 2",
                 [draft_id],
-            ).fetchone()
-            if draft.status is not OrderDraftStatus.APPROVED or row is None:
+            ).fetchall()
+            if draft.status is not OrderDraftStatus.APPROVED or not rows:
                 raise DraftError(
                     ErrorType.USER_APPROVAL_REQUIRED, "草稿没有当前的已记录批准。"
                 )
-            approval = ApprovalDecision.model_validate(_record(_APPROVAL_COLUMNS, row))
+            latest = _record(_APPROVAL_COLUMNS, rows[0])
+            if (
+                len(rows) > 1
+                and latest["decided_at"]
+                == _record(_APPROVAL_COLUMNS, rows[1])["decided_at"]
+            ):
+                raise DraftError(
+                    ErrorType.USER_APPROVAL_REQUIRED,
+                    "最近审批决定的时间相同，无法确定有效批准。",
+                )
+            approval = ApprovalDecision.model_validate(latest)
             if (
                 approval.decision is not Decision.APPROVED
                 or approval.plan_id != draft.plan_id

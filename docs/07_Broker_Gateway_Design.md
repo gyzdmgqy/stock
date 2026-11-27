@@ -401,7 +401,7 @@ Output:
 
 ## 6.7 Order Submission Service
 
-Responsible for submitting approved orders to Schwab.
+Phase 13 只实现由内置适配器驱动的模拟提交。服务没有真实请求路由、令牌参数或 CLI，不接入日流程或仪表盘。默认关闭，测试需要显式通过模拟开关和 Phase 12 验收门槛，并仅使用独立的 `*.simulation.duckdb` 数据库。
 
 Hard rule:
 
@@ -419,6 +419,8 @@ The service must validate:
 - Latest applicable approval is APPROVED and its payload matches the exact draft
 - No blocking risk rule remains active
 
+模拟服务在同一个写事务内复核账户、计划、资金或可卖股数和最新审批，写入不可改动的请求快照与提交尝试，将草稿标记为 `SUBMITTING`。事务提交后才调用模拟适配器。之后的回执更新与日志同事务保存；如果收到回执但无法提交事务，下次只能从已落库的尝试对账。
+
 ---
 
 ## 6.8 Order Status Sync Service
@@ -427,6 +429,8 @@ Responsible for retrieving broker order status.
 
 Map broker statuses to the canonical OrderDraftStatus registry in doc 04.
 Preserve broker responses in the audit trail; UNKNOWN requires reconciliation.
+
+模拟提交超时进入 `UNKNOWN`。预留提交已满两分钟且没有结果时，才允许将中断的 `SUBMITTING` 转为 `UNKNOWN` 并查证。没有证据时保留不确定状态，不回到 `APPROVED`；只有明确未接单的证据才允许 `FAILED`。关闭模拟提交后仍可对账。每个计划和草稿最多一次尝试，再次发起必须重新规划并批准。
 
 The result should update:
 
@@ -663,6 +667,8 @@ broker_transaction
 trade_plan
 order_draft
 approval_record
+order_submission_attempt
+order_submission_event
 journal_entry
 ```
 

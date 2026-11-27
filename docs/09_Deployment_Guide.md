@@ -590,18 +590,15 @@ SCHWAB_ACCOUNT_NUMBER=
 
 有重叠歧义时，改用不重叠的成交窗口，或不传 `--since` 只同步持仓和现金。同步不会替代手工可卖股数、挂单状态或组合暴露证据，也不要与 CSV 导入或日流程并发写入同一数据库。
 
-## Phase 13: Approved submission only
+## Phase 13: 模拟提交与对账
 
-```env
-SCHWAB_API_ENABLED=true
-ORDER_SUBMISSION_ENABLED=true
+本阶段没有真实提交适配器。保留本地与正式配置的 `ORDER_SUBMISSION_ENABLED=false`，不要为测试更改 `.env`、券商配置或真实数据库。模拟测试显式注入本地开关，使用新建的 `*.simulation.duckdb`：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/unit/broker_gateway/submission
 ```
 
-Even in Phase 13:
-
-```text
-Only approved order drafts can be submitted.
-```
+数据库版本 2 加入提交审计表；初始化脚本在验证旧迁移校验值后升级，不修改历史记录。实际券商权限、真实读取验收和真实提交均须另行人工评审。仅修改环境变量不会带来真实提交能力。
 
 ---
 

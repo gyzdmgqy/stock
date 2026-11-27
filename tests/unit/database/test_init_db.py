@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from shutil import copytree
+from shutil import copy2, copytree
 from subprocess import run
 from sys import executable
 
@@ -44,6 +44,8 @@ TABLES = {
     "trade_plan_signal_link",
     "order_draft",
     "approval_record",
+    "order_submission_attempt",
+    "order_submission_event",
     "daily_cio_brief",
     "journal_entry",
     "trade_outcome",
@@ -114,7 +116,7 @@ def plan():
 
 
 def test_init_creates_schema_indexes_and_seeds(db_path):
-    assert initialize_database(db_path) == 1
+    assert initialize_database(db_path) == 2
     assert db_path.is_file()
     with connect_database(db_path, read_only=True) as db:
         assert {row[0] for row in db.execute("SHOW TABLES").fetchall()} == TABLES | {
@@ -182,9 +184,9 @@ def test_reinitialization_preserves_existing_records_and_restores_missing_seeds(
             ),
         )
 
-    assert initialize_database(db_path) == 1
+    assert initialize_database(db_path) == 2
     with connect_database(db_path, read_only=True) as db:
-        assert db.execute("SELECT count(*) FROM _schema_migrations").fetchone() == (1,)
+        assert db.execute("SELECT count(*) FROM _schema_migrations").fetchone() == (2,)
         assert db.execute("SELECT count(*) FROM symbol").fetchone() == (len(SYMBOLS),)
         assert db.execute(
             "SELECT account_name FROM portfolio_account WHERE account_id = 'SCHWAB_ROTH'"
@@ -323,17 +325,17 @@ def test_versioned_upgrade_applies_once_and_rejects_changed_history(db_path, tmp
     initialize_database(db_path)
     folder = tmp_path / "migrations"
     copytree(MIGRATIONS, folder)
-    migration = folder / "0002_sample_upgrade.sql"
+    migration = folder / "0003_sample_upgrade.sql"
     migration.write_text(
         "ALTER TABLE symbol ADD COLUMN test_metadata TEXT;", encoding="utf-8"
     )
 
-    assert initialize_database(db_path, migrations_dir=folder) == 2
-    assert initialize_database(db_path, migrations_dir=folder) == 2
+    assert initialize_database(db_path, migrations_dir=folder) == 3
+    assert initialize_database(db_path, migrations_dir=folder) == 3
     with connect_database(db_path, read_only=True) as db:
         assert db.execute(
             "SELECT version FROM _schema_migrations ORDER BY version"
-        ).fetchall() == [(1,), (2,)]
+        ).fetchall() == [(1,), (2,), (3,)]
         assert db.execute("SELECT count(test_metadata) FROM symbol").fetchone() == (0,)
     with pytest.raises(MigrationError, match="版本"):
         initialize_database(db_path)
@@ -342,21 +344,45 @@ def test_versioned_upgrade_applies_once_and_rejects_changed_history(db_path, tmp
         initialize_database(db_path, migrations_dir=folder)
 
 
+def test_submission_audit_upgrades_phase12_database_without_changing_existing_data(
+    db_path, tmp_path
+):
+    legacy = tmp_path / "phase12"
+    legacy.mkdir()
+    copy2(MIGRATIONS / "0001_initial_schema.sql", legacy)
+    assert initialize_database(db_path, migrations_dir=legacy) == 1
+    with connect_database(db_path) as db:
+        db.execute("INSERT INTO symbol (symbol, name) VALUES ('TEST', '原有记录')")
+    assert initialize_database(db_path) == 2
+    with connect_database(db_path, read_only=True) as db:
+        assert db.execute(
+            "SELECT name FROM symbol WHERE symbol = 'TEST'"
+        ).fetchone() == ("原有记录",)
+        assert db.execute(
+            "SELECT count(*) FROM order_submission_attempt"
+        ).fetchone() == (0,)
+        assert db.execute("SELECT count(*) FROM order_submission_event").fetchone() == (
+            0,
+        )
+
+
 def test_failing_migration_rolls_back_ddl_and_version(db_path, tmp_path):
     initialize_database(db_path)
     folder = tmp_path / "migrations"
     copytree(MIGRATIONS, folder)
-    (folder / "0002_invalid_upgrade.sql").write_text(
+    (folder / "0003_invalid_upgrade.sql").write_text(
         "CREATE TABLE rollback_probe (id INT); INSERT INTO missing_table VALUES (1);",
         encoding="utf-8",
     )
-    with pytest.raises(MigrationError, match="0002"):
+    with pytest.raises(MigrationError, match="0003"):
         initialize_database(db_path, migrations_dir=folder)
     with connect_database(db_path, read_only=True) as db:
         assert "rollback_probe" not in {
             row[0] for row in db.execute("SHOW TABLES").fetchall()
         }
-        assert db.execute("SELECT version FROM _schema_migrations").fetchall() == [(1,)]
+        assert db.execute(
+            "SELECT version FROM _schema_migrations ORDER BY version"
+        ).fetchall() == [(1,), (2,)]
 
 
 def test_unversioned_existing_database_is_not_modified(db_path):
@@ -380,7 +406,7 @@ def test_invalid_account_config_rolls_back_first_initialization(db_path, tmp_pat
         initialize_database(db_path, config_dir=config_dir)
     with connect_database(db_path, read_only=True) as db:
         assert db.execute("SHOW TABLES").fetchall() == []
-    assert initialize_database(db_path) == 1
+    assert initialize_database(db_path) == 2
 
 
 def test_cli_can_initialize_explicit_path_from_another_working_directory(

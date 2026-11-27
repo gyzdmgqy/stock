@@ -832,6 +832,45 @@ CREATE TABLE IF NOT EXISTS approval_record (
 
 ---
 
+## 10.3 order_submission_attempt
+
+Phase 13 用 `0002_order_submission_audit.sql` 新增提交审计。当前只支持模拟模式，实际数据库默认不运行提交服务。每个草稿和计划最多有一次尝试，提交前先将精确批准快照和 `SUBMITTING` 同事务写入。
+
+```sql
+CREATE TABLE order_submission_attempt (
+    attempt_id TEXT PRIMARY KEY,
+    draft_id TEXT NOT NULL UNIQUE,
+    plan_id TEXT NOT NULL UNIQUE,
+    approval_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK (mode = 'SIMULATED'),
+    order_payload JSON NOT NULL,
+    status TEXT NOT NULL,
+    broker_order_id TEXT,
+    event_number INTEGER NOT NULL CHECK (event_number >= 1),
+    started_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (account_id, broker_order_id)
+);
+```
+
+## 10.4 order_submission_event
+
+逐次保存状态和模拟回执。一次状态更新、对应事件、当次新增模拟成交及相关日志同事务提交。只有核验成功的模拟回执才更新订单结果。
+
+```sql
+CREATE TABLE order_submission_event (
+    attempt_id TEXT NOT NULL,
+    event_number INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL,
+    broker_response JSON,
+    PRIMARY KEY (attempt_id, event_number)
+);
+```
+
+---
+
 # 11. Daily CIO Brief Tables
 
 ---
@@ -1268,6 +1307,8 @@ orders. Reconcile broker acceptance and fills first. Approval decisions are
 append-only; use the latest applicable decision for that exact immutable draft.
 Track partial fills as distinct broker transactions. A canceled remainder does
 not erase earlier fills, and a partially filled plan is not yet EXECUTED.
+
+Phase 13 不自动重试：`SUBMITTING` 中断后进入 `UNKNOWN` 并只做对账，查不到订单不是未接单证据；明确未接单才可转 `FAILED`。即使进入终态，同一草稿和计划也不重新提交。下一次尝试必须基于新计划、新草稿和新审批。
 
 Journal outcome milestones describe which metrics are available; they are not a
 journal status enum or an approval state machine.
