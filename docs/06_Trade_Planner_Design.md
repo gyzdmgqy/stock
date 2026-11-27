@@ -826,14 +826,9 @@ A Trade Plan is eligible for order draft only if:
 - no action-specific blocking event exists
 - user has not disabled order drafts
 
-WATCH plans should normally not generate order drafts.
+Phase 9 关闭 WATCH 条件草稿。WATCH、HOLD、AVOID 和 EXIT_ONLY 均不转成订单；将来启用 WATCH 条件草稿前，须另外定义方向、参数和审批约定，且不得绕过小时确认。
 
-Exception:
-
-A WATCH plan may generate a conditional draft only if the user explicitly enables
-conditional drafts and all required hourly confirmations are already satisfied.
-A WATCH state caused by missing, stale, or unconfirmed required hourly evidence
-never qualifies for this exception.
+规划器在 `input_references` 中保留源小时信号、账户快照及交易日历。网关用这些证据复核入场、保护性退出和数据时效；缺少证据的旧计划须重新生成。退出复查最近两个已收盘交易日各自的收盘价与 MA200，减仓复查超限和减至上限所需股数。
 
 ---
 

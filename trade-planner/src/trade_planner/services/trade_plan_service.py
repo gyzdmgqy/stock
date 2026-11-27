@@ -1,5 +1,4 @@
 import json
-from datetime import date, time
 from hashlib import sha256
 from pathlib import Path
 
@@ -25,8 +24,9 @@ from ..planners.schwab_active_planner import plan_active
 from ..planners.vanguard_exit_planner import plan_exit_only
 from ..rules.account_role_gate import is_exit_only_stock, supports_active_trading
 from ..rules.hourly_gate import APP_TIMEZONE
+from ..rules.protective_exit_gate import completed_sessions, two_closes_below_ma200
 
-RULE_VERSION = "phase5-v1"
+RULE_VERSION = "phase5-v2"
 _PLAN_INVALIDATION = "source_signal_or_account_state_changed"
 _INERT_STATUSES = {
     TradePlanStatus.REJECTED,
@@ -99,11 +99,7 @@ class TradePlanService:
             else None
         )
         local = request.as_of.astimezone(APP_TIMEZONE)
-        completed = tuple(
-            day
-            for day in request.trading_sessions
-            if day < local.date() or (day == local.date() and local.time() >= time(15))
-        )
+        completed = completed_sessions(request.trading_sessions, request.as_of)
         current = bool(completed and signal.trade_date == completed[-1])
         earnings = tuple(
             day
@@ -124,7 +120,7 @@ class TradePlanService:
             confirmed_ma200_exit=(
                 current
                 and len(completed) >= 2
-                and self._two_closes_below_ma200(signal.symbol, completed[-2:])
+                and two_closes_below_ma200(self._db, signal.symbol, completed[-2:])
             ),
             future_reentry_account=self._future_reentry_account(account, asset_type),
             limits=self._limits,
@@ -139,20 +135,6 @@ class TradePlanService:
         if row is None:
             raise ValueError(f"找不到 {key} 对应的记录：{value}")
         return dict(zip(columns, row, strict=True))
-
-    def _two_closes_below_ma200(self, symbol: str, dates: tuple[date, ...]) -> bool:
-        rows = self._db.execute(
-            """
-            SELECT p.close, i.ma200 FROM daily_price AS p
-            JOIN daily_indicator AS i USING (symbol, trade_date)
-            WHERE p.symbol = ? AND p.trade_date IN (?, ?)
-            """,
-            [symbol, *dates],
-        ).fetchall()
-        return len(rows) == 2 and all(
-            close is not None and ma200 is not None and 0 < close < ma200
-            for close, ma200 in rows
-        )
 
     def _future_reentry_account(
         self, account: AccountPolicy, asset: AssetType | None
@@ -216,6 +198,15 @@ def _make_plan(context: PlanningContext, decision: Decision) -> TradePlan:
         "intraday_signal_id": (
             request.intraday_signal.signal_id if request.intraday_signal else None
         ),
+        "intraday_signal": (
+            request.intraday_signal.model_dump(mode="json")
+            if request.intraday_signal
+            else None
+        ),
+        "portfolio_state": (
+            request.portfolio.model_dump(mode="json") if request.portfolio else None
+        ),
+        "trading_sessions": [day.isoformat() for day in request.trading_sessions],
         "portfolio_observed_at": (
             request.portfolio.observed_at.isoformat() if request.portfolio else None
         ),

@@ -584,6 +584,8 @@ Use OrderDraftStatus and its transition table from doc 04.
 批准记录必须包含完整的 `approved_payload` 快照。提交前校验草稿 ID、计划 ID
 和全部订单参数。数量和价格字段可从快照派生，显式提供时必须一致。
 
+Phase 9 在本地保存批准快照和状态，不提交订单。批准时再次复核计划、信号和资金或持仓；仅有 `APPROVED` 状态不视为有效批准。修改会写入 `MODIFIED` 决策并产生新 `PENDING_REVIEW` 草稿，新草稿不继承审批。
+
 ```json
 {
   "approval_id": "APR-20260607-VRTX-001",

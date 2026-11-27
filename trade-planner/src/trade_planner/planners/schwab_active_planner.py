@@ -1,5 +1,4 @@
 from datetime import timedelta
-from decimal import ROUND_UP, Decimal
 
 from shared.enums import Action, MarketRegime, OrderType, StopType, StrategyType
 from shared.models.trade_plan import EntryOrder, StopOrder
@@ -7,6 +6,7 @@ from shared.models.trade_plan import EntryOrder, StopOrder
 from ..rules.confidence_gate import entry_confidence
 from ..rules.event_risk_gate import earnings_block_reason
 from ..rules.hourly_gate import hourly_block_reason
+from ..rules.protective_exit_gate import required_reduction_quantity
 from ..sizing.position_sizing import position_size, size_entry
 from .base import Decision, PlanningContext, PortfolioState
 
@@ -47,17 +47,13 @@ def _protective_exit(
         trigger = "two_completed_closes_below_ma200"
         reason = "连续两个已收盘交易日低于各自 MA200。"
     elif (
-        state.account_equity
-        and state.position_value is not None
-        and state.position_value
-        > state.account_equity * context.limits.max_single_stock_weight
-    ):
-        cap = state.account_equity * context.limits.max_single_stock_weight
-        excess = state.position_value - cap
-        desired = excess * state.quantity / state.position_value
-        quantity = min(
-            state.quantity, desired.quantize(Decimal("0.00000001"), rounding=ROUND_UP)
+        quantity := required_reduction_quantity(
+            state.quantity,
+            state.position_value,
+            state.account_equity,
+            context.limits.max_single_stock_weight,
         )
+    ) is not None:
         action, trigger = Action.REDUCE, "account_symbol_weight_above_cap"
         reason = "账户个股敞口超限，按持仓快照估算减至上限所需股数。"
     else:

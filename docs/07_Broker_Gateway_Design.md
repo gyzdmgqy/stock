@@ -582,12 +582,15 @@ min_entry_confidence_for_order_draft: 70
 REDUCE / EXIT uses the planner's separate protective-exit rules; do not apply
 the entry-confidence cutoff. Require a validated exit trigger, available held
 quantity, account permission, action-specific checks, and approval. A BUY cannot
-bypass the entry gate by being labeled a protective exit. Exact exit thresholds
-must be agreed before implementation.
+bypass the entry gate by being labeled a protective exit.
+
+Phase 9 只从仍有效的 ADD、RE_ENTRY、REDUCE、EXIT 计划生成当日普通时段限价草稿（`DAY` / `NORMAL`）。模型中的市价、止损和止损限价仍保留，首版不从规划止损参数生成独立订单。网关复核连续两日收盘低于 MA200，或账户持仓超限所需的减仓股数，并校验可卖持仓。Vanguard 个股买入禁止，账户草稿配置不得覆盖该限制。
 
 Plans requiring hourly confirmation remain WATCH with no draft while that
 confirmation is missing, stale, or unsatisfied. No conditional-draft exception
 may bypass this requirement.
+
+Phase 9 的 WATCH 不生成条件草稿。网关在生成和批准时按 `America/Chicago` 复核当天计划，以及所需小时信号的归属、收盘和时效。新的更正日线、财报事件或后继计划可阻断原草稿。
 
 ## 9.4 Cash / Position Check
 
@@ -604,6 +607,8 @@ For SELL:
 ```text
 available_quantity >= order_quantity
 ```
+
+Phase 9 的本地 BUY 草稿按数量乘限价估算金额。已知可交易现金不足时阻止生成及批准；缺少可交易金额时可生成待审草稿，批准前必须补齐。现金余额不等于可交易现金。SELL 需要可验证的可卖股数，较新的已导入持仓不足时阻止生成及批准。
 
 ---
 
@@ -622,6 +627,8 @@ same limit_price
 same trade_date
 same plan_id
 ```
+
+同一计划的初始草稿只能创建一次；同一账户、标的和方向有未解决的草稿或订单时，也阻止叠加。修改通过单独的审批迁移替换原草稿，不作为普通重建。
 
 ---
 
@@ -645,6 +652,8 @@ Only APPROVED may enter SUBMITTING. MODIFIED retires the old draft and creates
 a new PENDING_REVIEW draft with replaces_draft_id; fresh approval is required.
 A matching approval_record.approved_payload is mandatory before submission.
 SUBMITTING timeouts become UNKNOWN and must be reconciled before retry.
+
+Phase 9 仅实现本地审批，不进入 `SUBMITTING`。批准必须提供用户已审阅的完整订单快照，草稿状态和审批表在同一事务提交。修改不允许改变账户、标的、方向、订单类型或执行时段，也不可突破计划数量和价格约束。新草稿没有旧批准，必须再次人工审阅。
 
 # 11. Database Tables Used
 

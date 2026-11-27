@@ -2,6 +2,15 @@
 
 Phase 8 支持本地预览和导入 Schwab、Vanguard 的交易流水、持仓和现金快照。不连接券商 API，也不生成或提交订单。
 
+## 本地草稿与审批
+
+Phase 9 通过 `broker_gateway.drafts.OrderDraftService` 读取已入库的当日交易计划，生成普通时段、当日有效的限价草稿。调用 `create_draft(plan_id)` 后先向用户展示返回的 `draft.order_snapshot()`。只有用户明确批准该快照后，调用 `record_decision(draft_id, Decision.APPROVED, reviewed_payload=已审阅的快照)`；`Decision` 来自 `shared.enums.ApprovalDecision`。本阶段不提供券商提交或 API 调用。
+
+- WATCH 不生成草稿；需要小时确认的计划必须附可复核证据。旧计划若缺少新版规划证据，请重新生成。
+- BUY 缺可交易现金时只可待审，不能批准；已知不足时不生成草稿。SELL 必须验证触发和可卖数量。
+- 延期后可调用 `reopen_deferred(draft_id)` 重新进入待审。已被替代的计划可用 `expire_draft(draft_id)` 结束其未提交草稿。
+- 修改会结束原草稿并创建新 ID，必须获得新审批。`require_current_approval(draft_id)` 检查已落库批准、精确参数和当前证据，仅作本地安全校验。
+
 ## 本地导入
 
 先初始化 DuckDB。原始文件放在仓库的 `imports/raw/schwab/` 或 `imports/raw/vanguard/` 下，每份文件只包含一个账户。从仓库根目录运行：
