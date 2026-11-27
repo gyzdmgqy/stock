@@ -233,13 +233,7 @@ broker-gateway/
 
 Responsible for broker authentication.
 
-Responsibilities:
-
-- Store OAuth metadata
-- Refresh tokens
-- Validate connection state
-- Detect expired credentials
-- Return structured auth errors
+Phase 12 只接收外部授权取得的访问令牌、到期时间和目标账号。令牌在内存中使用，已过期或授权被拒绝时返回结构化错误，不实现登录、回调或刷新。令牌、真实账号、哈希及原始响应不写入数据库或运行输出。
 
 Important:
 
@@ -326,12 +320,14 @@ Output:
   "price": 461.75,
   "gross_amount": 4617.5,
   "fee": 0.0,
-  "net_amount": 4617.5,
-  "order_type": "LIMIT",
+  "net_amount": -4617.5,
+  "order_type": null,
   "source": "API",
   "trade_date": "2026-06-07"
 }
 ```
+
+Phase 12 只对本地明确允许 API 的 Schwab 主动交易美元账户进行同步。仅支持单一股票、ETF 或基金证券腿的成交。API 与 CSV 的一致成交 ID 可去重，无法确认的重叠会取消批次。成交、持仓、现金与可关联的成交日志同批写入；订单状态只读、不会据此批准或更新本地订单草稿。
 
 ---
 

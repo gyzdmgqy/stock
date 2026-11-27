@@ -635,7 +635,9 @@ CREATE TABLE IF NOT EXISTS portfolio_cash_snapshot (
 
 Shared normalized transactions from Schwab, Vanguard CSV, or manual input.
 Source identifiers and deduplication keys are scoped to account and broker.
-Phase 8 的 CSV 导入按券商和本地账户作用域去重。有独立券商成交 ID 时优先使用该 ID；订单 ID 不单独作为成交身份。无成交 ID 时，使用规范化经济字段的哈希和同一文件内该指纹的出现序号。重叠导出按序号匹配；不同文件里各自出现且无 ID 的完全相同成交，不能可靠区分。冲突的同 ID 记录不自动覆盖。与未来 API 来源的归并不在本阶段。
+Phase 8 的 CSV 导入按券商和本地账户作用域去重。有独立券商成交 ID 时优先使用该 ID；订单 ID 不单独作为成交身份。无成交 ID 时，使用规范化经济字段的哈希和同一文件内该指纹的出现序号。重叠导出按序号匹配；不同文件里各自出现且无 ID 的完全相同成交，不能可靠区分。冲突的同 ID 记录不自动覆盖。
+
+Phase 12 在相同券商和本地账户下，用一致且交易事实兼容的成交 ID 匹配 Schwab API 和 CSV，保留先入库的记录。如果同日、同标的、同方向的成交量价可能重叠，却无法通过 ID 确认，阻止整批写入。API 不保存原始响应或账户标识；订单状态不回写本地草稿。该阶段不改变数据库表结构。
 
 买卖数量、总额和费用按绝对值保存；净额保留现金流方向（买入为负、卖出为正，零额可保留）。缺失净额与费用为 `NULL`，缺失总额在有成交量价时用两者相乘计算。没有时刻时仅保存交易日，不编造盘中时间。Phase 8 交易只支持美元；`source_file` 保存源文件的 SHA-256，不保存原始文件名或券商账户号。
 

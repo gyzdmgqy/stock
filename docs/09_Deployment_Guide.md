@@ -153,9 +153,9 @@ APP_ENV=local
 DATABASE_PATH=data/db/personal_cio.duckdb
 
 SCHWAB_API_ENABLED=false
-SCHWAB_CLIENT_ID=
-SCHWAB_CLIENT_SECRET=
-SCHWAB_REDIRECT_URI=
+SCHWAB_ACCESS_TOKEN=
+SCHWAB_ACCESS_TOKEN_EXPIRES_AT=
+SCHWAB_ACCOUNT_NUMBER=
 
 OPENAI_API_KEY=
 ORDER_SUBMISSION_ENABLED=false
@@ -566,10 +566,29 @@ SCHWAB_API_ENABLED=false
 
 ## Phase 12: Read-only sync
 
+先用本地数据验证券商 CSV 导入、日流程和仪表盘。默认不联网同步；首次真实读取须由用户完成本地验收并单独启用。测试不需要真实凭据。Schwab 的产品权限见[官方个人 Trader API 门户](https://developer.schwab.com/products/trader-api--individual)。
+
+确认要启用时，参考 `.env.example`，只在本机环境或 Git 忽略的 `.env` 配置：
+
 ```env
 SCHWAB_API_ENABLED=true
 ORDER_SUBMISSION_ENABLED=false
+SCHWAB_ACCESS_TOKEN=
+SCHWAB_ACCESS_TOKEN_EXPIRES_AT=
+SCHWAB_ACCOUNT_NUMBER=
 ```
+
+访问令牌须由外部流程取得；到期时间为带时区的 ISO 时间，账号要与目标本地账户对应。不要把真实值放进命令行参数、聊天或 Git。本阶段不存在登录回调、刷新令牌或定时同步。
+
+确认 `config/broker.yaml` 中 Schwab 启用、模式为 `read_only`、提交为 `false`。在 `config/accounts.yaml` 仅对确认绑定的 Schwab 账户启用 `api_sync_enabled`；已初始化的数据库还须单独核对并更新对应账户的同名权限。初始化不会覆盖旧账号的设置，CLI 也不会替你启用。
+
+```powershell
+# 仅在上述条件已满足时运行
+.\.venv\Scripts\python.exe scripts/sync_schwab_read_only.py --confirm-local-acceptance
+# --since 增加成交读取；--orders 增加只读订单状态
+```
+
+有重叠歧义时，改用不重叠的成交窗口，或不传 `--since` 只同步持仓和现金。同步不会替代手工可卖股数、挂单状态或组合暴露证据，也不要与 CSV 导入或日流程并发写入同一数据库。
 
 ## Phase 13: Approved submission only
 

@@ -15,6 +15,7 @@ from shared.enums import AccountRole, Broker, ErrorType
 from shared.models import BrokerTransaction, PortfolioCashSnapshot, PortfolioSnapshot
 
 from ..adapters.csv_format import label
+from ..transaction_reconciliation import TransactionOverlapError, matched_other_source
 from . import (
     schwab_position_importer,
     schwab_transaction_importer,
@@ -358,12 +359,18 @@ class CsvImportService:
             raise validation("无法核对归档文件。") from exc
 
     def _duplicates(self, preview: ImportPreview) -> tuple[str, ...]:
-        duplicates = []
+        duplicates = set()
         if preview.transactions:
+            for candidate in preview.transactions:
+                try:
+                    if matched_other_source(self._db, candidate):
+                        duplicates.add(candidate.transaction_id)
+                except TransactionOverlapError as exc:
+                    raise validation(str(exc)) from None
             columns = ", ".join(_TRANSACTION_FIELDS)
             rows = self._db.execute(
                 f"SELECT {columns} FROM broker_transaction WHERE broker = ? AND account_id = ? "
-                "AND deduplication_key IN (SELECT unnest(?))",
+                "AND source IS DISTINCT FROM 'API' AND deduplication_key IN (SELECT unnest(?))",
                 [
                     preview.broker.value,
                     preview.account_id,
@@ -378,7 +385,7 @@ class CsvImportService:
                 candidate = candidates[stored.deduplication_key]
                 if transaction_facts(stored) != transaction_facts(candidate):
                     raise validation("同一券商成交 ID 对应的已导入交易事实冲突。")
-                duplicates.append(candidate.transaction_id)
+                duplicates.add(candidate.transaction_id)
         for table, records in (
             ("portfolio_position_snapshot", preview.positions),
             ("portfolio_cash_snapshot", preview.cash),
@@ -388,7 +395,7 @@ class CsvImportService:
                     f"SELECT snapshot_id FROM {table} WHERE snapshot_id IN (SELECT unnest(?))",
                     [[r.snapshot_id for r in records]],
                 ).fetchall()
-                duplicates.extend(row[0] for row in rows)
+                duplicates.update(row[0] for row in rows)
         return tuple(sorted(duplicates))
 
     def _insert(self, table: str, record: BaseModel, fields: tuple[str, ...]) -> None:
