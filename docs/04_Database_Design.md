@@ -635,9 +635,9 @@ CREATE TABLE IF NOT EXISTS portfolio_cash_snapshot (
 
 Shared normalized transactions from Schwab, Vanguard CSV, or manual input.
 Source identifiers and deduplication keys are scoped to account and broker.
-CSV/API reconciliation must preserve separate real fills that happen to have
-identical prices and quantities. Sign conventions and matching rules must be
-specified with broker sample formats before Phase 8.
+Phase 8 的 CSV 导入按券商和本地账户作用域去重。有独立券商成交 ID 时优先使用该 ID；订单 ID 不单独作为成交身份。无成交 ID 时，使用规范化经济字段的哈希和同一文件内该指纹的出现序号。重叠导出按序号匹配；不同文件里各自出现且无 ID 的完全相同成交，不能可靠区分。冲突的同 ID 记录不自动覆盖。与未来 API 来源的归并不在本阶段。
+
+买卖数量、总额和费用按绝对值保存；净额保留现金流方向（买入为负、卖出为正，零额可保留）。缺失净额与费用为 `NULL`，缺失总额在有成交量价时用两者相乘计算。没有时刻时仅保存交易日，不编造盘中时间。Phase 8 交易只支持美元；`source_file` 保存源文件的 SHA-256，不保存原始文件名或券商账户号。
 
 ```sql
 CREATE TABLE IF NOT EXISTS broker_transaction (

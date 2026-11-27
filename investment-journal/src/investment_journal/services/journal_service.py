@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from zoneinfo import ZoneInfo
 
 from duckdb import DuckDBPyConnection
@@ -125,9 +126,14 @@ class JournalService:
         )
 
     def record_transaction(
-        self, transaction: BrokerTransaction, *, plan_id: str | None = None
+        self,
+        transaction: BrokerTransaction,
+        *,
+        plan_id: str | None = None,
+        in_transaction: bool = False,
     ) -> JournalEntry:
-        with self._repository.transaction():
+        # CSV 导入方持有批次事务，成交和日志必须一起提交。
+        with nullcontext() if in_transaction else self._repository.transaction():
             stored = self._repository.require_transaction(transaction.transaction_id)
             if (transaction.broker, transaction.account_id, transaction.symbol) != (
                 stored.broker,

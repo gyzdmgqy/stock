@@ -703,6 +703,10 @@ Manual normalized CSV
 7. Investment Journal uses imported records for performance review.
 ```
 
+Phase 8 要求明确选择券商和本地账户，拒绝混合账户或不匹配的来源。预览展示规范化交易、持仓、现金、已入库记录和警告，不写库也不移动文件。确认绑定该预览和原文件内容；内容或已入库状态有变化时须重新预览。导入和成交日志共用一个 DuckDB 事务，提交成功后才归档原文件。归档失败不回滚已提交数据，重新预览确认可幂等重试。
+
+持仓和现金快照需要明确的含时区观察时间，快照日按 `America/Chicago` 计算。文件没有列出的持仓不补零，现金余额也不当作可交易资金。支持的列名、调用方式和限制见 [券商网关说明](../broker-gateway/README.md)。
+
 ---
 
 ## 12.4 Import Folder Structure

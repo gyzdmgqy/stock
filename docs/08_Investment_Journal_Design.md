@@ -147,6 +147,8 @@ The Investment Journal consumes data from:
 - BROKER_TRANSACTION
 - PORTFOLIO_SNAPSHOT
 
+Phase 8 的 CSV 交易中，规范化为 `BUY` 或 `SELL` 的成交会调用现有日志服务产生 `TRADE_EXECUTION`。日志与交易同批提交；重复导入不会创建第二条日志。股息、转账等非成交流水仍入交易表，本阶段不创建成交日志，也不按相同标的擅自关联交易计划。
+
 ## 4.4 personal-cio-agent
 
 - DAILY_CIO_BRIEF

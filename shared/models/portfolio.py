@@ -37,6 +37,17 @@ class PortfolioSnapshot(TimestampedModel):
     portfolio_weight: Fraction | None = None
 
 
+class PortfolioCashSnapshot(TimestampedModel):
+    snapshot_id: NonBlank
+    account_id: NonBlank
+    snapshot_date: date
+    observed_at: UtcDatetime
+    currency: NonBlank = "USD"
+    cash_balance: Money | None = None
+    available_to_trade: Money | None = None
+    source: TransactionSource
+
+
 class BrokerTransaction(TimestampedModel):
     transaction_id: NonBlank
     broker: Broker
