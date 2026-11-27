@@ -12,6 +12,7 @@ Jinja2
 streamlit
 plotly
 tzdata
+exchange-calendars>=4.11,<5
 
 # 测试、格式化和静态检查
 pytest

@@ -117,6 +117,7 @@ class PlanningRequest(SharedModel):
     account_id: NonBlank
     signal_id: NonBlank
     as_of: UtcDatetime
+    session_close: UtcDatetime | None = None
     trading_sessions: tuple[date, ...] = ()
     portfolio: PortfolioState | None = None
     intraday_signal: IntradaySignal | None = None

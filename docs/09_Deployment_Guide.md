@@ -117,6 +117,7 @@ pyyaml
 python-dotenv
 requests
 yfinance
+exchange-calendars>=4.11,<5
 ta
 jinja2
 pytest
@@ -276,6 +277,7 @@ app:
   environment: local
   timezone: America/Chicago
   base_currency: USD
+  market_history_sessions: 220
   report_format:
     - markdown
     - json
@@ -339,15 +341,14 @@ risk:
   max_single_stock_weight: 0.08
   max_new_trade_weight: 0.03
   max_trade_risk_percent: 0.005
+  max_combined_symbol_weight: 0.08
+  max_combined_sector_weight: 0.25
   min_risk_reward_ratio: 2.0
   block_new_entry_before_earnings_days: 5
   min_entry_confidence_for_order_draft: 70
 ```
 
-Position-size and new-trade-weight limits use individual account equity. Combined
-portfolio exposure is checked separately; its exact limits remain to be agreed.
-The entry-confidence setting applies to ADD / RE_ENTRY only. REDUCE / EXIT uses
-separate exit rules. Required hourly confirmation cannot be bypassed.
+仓位和单笔风险按单账户净值计算；组合单标的默认上限为 8%，板块为 25%，分别校验。入场置信度只用于 ADD / RE_ENTRY。REDUCE / EXIT 使用单独的退出规则，所需小时确认不可绕过。
 
 ## config/broker.yaml
 
@@ -370,32 +371,41 @@ brokers:
 
 # 12. Daily Local Run
 
-MVP command:
+在初始化 DuckDB 并导入最新券商 CSV 后，从仓库根目录运行：
 
 ```bash
 python scripts/run_daily_pipeline.py
+# 不联网，只使用 DuckDB 已有的行情
+python scripts/run_daily_pipeline.py --offline
 ```
 
-Before running, load the latest broker CSV/manual snapshots. Missing or stale
-portfolio inputs must be surfaced in the brief; the executable-draft freshness
-policy must be agreed before Phase 9.
+`--db-path`、`--config-dir`、`--output-dir` 可指定其他位置。未指定数据库时读取 `DATABASE_PATH` 或使用默认路径。业务日期固定按 `America/Chicago` 计算，常规交易时段、休市和提前收市以 XNYS 日历为准。非交易日或尚未收盘时直接跳过，不下载、不写入。
 
-Pipeline:
+默认只通过 yfinance 补齐窗口内缺少或不完整的日线，保留完整的本地数据。默认分析窗口为 220 个交易日，额外读取一日供前一交易日指标复算。缺少当日行情时不借用旧信号；窗口不全时可生成信号，但该标的本次不生成计划和草稿。已有历史记录保留，简报仅展示本次使用的信号和计划。
+
+运行顺序：
 
 ```text
-1. Load config
-2. Load symbol universe
-3. Download market data
-4. Calculate indicators
-5. Generate signals
-6. Generate trade plans using imported positions, cash, and account policies
-7. Generate order drafts if eligible
-8. Generate Daily CIO Brief
-9. Write journal records
-10. Save outputs
+行情 → 指标和信号 → 交易计划 → 待审订单草稿 → CIO 简报 → 投资日志
 ```
 
-Expected outputs:
+券商 CSV 只能证明记录中的事实。CSV 缺行不等于空仓，现金余额不等于可交易现金，持有股数不等于可卖股数。净值优先使用当日已记录的组合风险快照；挂单状态、可卖股数及其他策略证据缺失或过期时，会在简报提示，不会据此生成草稿。
+
+可选人工确认文件默认位于 Git 忽略的 `imports/normalized/planning.yaml`，也可用 `--planning-inputs` 指定。仅填写实际确认过的事实。下面是合成示例：
+
+```yaml
+reviews:
+  - account_id: SCHWAB_ROTH
+    symbol: VRTX
+    observed_at: "2026-06-08T15:00:00-05:00"
+    has_open_order: false
+    available_to_sell: 5
+    exit_limit_price: 89
+```
+
+入场还要满足原规划条件。需要时可附实际确认的 `confirmed_flat`、`reentry_candidate`、`earnings_checked_through`、`entry_prices`、`intraday_signal` 和组合暴露；系统不会从小时价格推断确认，也不会从没有事件记录推断财报日历已覆盖。账户和券商配置两者都须开放草稿，流程不会自动批准、下单或连接券商 API。
+
+输出文件：
 
 ```text
 outputs/briefs/YYYY-MM-DD_Daily_CIO_Brief.md
@@ -405,7 +415,7 @@ outputs/order_drafts/YYYY-MM-DD_order_drafts.json
 outputs/journal/YYYY-MM-DD_journal.json
 ```
 
-每日简报以 DuckDB 中的记录为准。对同一业务日期重跑会更新 Markdown 和 JSON，保留原简报 ID 和创建时间。独立调用方式见 [CIO 简报使用说明](../personal-cio-agent/README.md)。
+每日简报以 DuckDB 中的记录为准。同日、同一输入重跑不重复写入信号、计划、草稿或日志，保留原简报 ID、创建时间和人工备注；输入修正允许生成可追溯的新版本。各阶段使用自身事务，输出文件单独原子替换；中断后重跑即可补齐。不要与 CSV 导入或其他写入流程并发运行。
 
 ---
 
@@ -418,24 +428,15 @@ imports/raw/schwab/
 imports/raw/vanguard/
 ```
 
-Run import:
+按[券商 CSV 使用说明](../broker-gateway/README.md)设置本地模块路径，再运行导入命令。例如 Windows PowerShell：
 
-```bash
-python scripts/import_broker_csv.py --broker schwab --file imports/raw/schwab/transactions.csv
-python scripts/import_broker_csv.py --broker vanguard --file imports/raw/vanguard/transactions.csv
+```powershell
+$env:PYTHONPATH = "broker-gateway/src;investment-journal/src;."
+.\.venv\Scripts\python.exe -m broker_gateway.csv_import SCHWAB SCHWAB_ROTH imports/raw/schwab/transactions.csv
+.\.venv\Scripts\python.exe -m broker_gateway.csv_import VANGUARD VANGUARD_ROTH imports/raw/vanguard/transactions.csv
 ```
 
-Importer flow:
-
-```text
-1. Detect file type
-2. Normalize columns
-3. Validate records
-4. Write normalized CSV
-5. Preview records and obtain user confirmation
-6. Insert confirmed records into DuckDB
-7. Archive raw file
-```
+预览确认前不写入数据库，确认并成功提交后才归档。持仓和现金导入必须附实际的 `--observed-at`。
 
 ---
 
@@ -703,11 +704,7 @@ Run daily pipeline:
 python scripts/run_daily_pipeline.py
 ```
 
-Import CSV:
-
-```bash
-python scripts/import_broker_csv.py --broker schwab --file imports/raw/schwab/transactions.csv
-```
+导入 CSV 见[第 13 节](#13-csv-import-workflow)。
 
 Run dashboard:
 

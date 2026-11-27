@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 from hashlib import sha256
 from json import dumps
 
@@ -39,9 +39,20 @@ class DailySignalService:
         self._intraday = IntradayPriceRepository(db)
         self._rules = rules
 
-    def generate_daily_signal(self, symbol: str, trade_date: date) -> DailySignal:
+    def generate_daily_signal(
+        self,
+        symbol: str,
+        trade_date: date,
+        *,
+        history_sessions: tuple[date, ...] | None = None,
+        intraday_session: tuple[datetime, datetime] | None = None,
+    ) -> DailySignal:
         try:
-            bars = self._daily.get_daily_prices(symbol, date.min, trade_date)
+            start = history_sessions[0] if history_sessions else date.min
+            bars = self._daily.get_daily_prices(symbol, start, trade_date)
+            if history_sessions is not None:
+                sessions = set(history_sessions)
+                bars = [bar for bar in bars if bar.trade_date in sessions]
             if not bars or bars[-1].trade_date != trade_date:
                 raise AnalysisError(
                     ErrorType.DATA_MISSING,
@@ -57,6 +68,11 @@ class DailySignalService:
                         candle.symbol, trade_date
                     )
                     if bar.low is not None
+                    and (
+                        intraday_session is None
+                        or intraday_session[0] <= bar.bar_start
+                        and bar.bar_start + timedelta(hours=1) <= intraday_session[1]
+                    )
                 ),
                 default=None,
             )

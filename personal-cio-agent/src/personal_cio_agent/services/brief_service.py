@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -39,7 +39,15 @@ class BriefService:
         self._db = db
         self._output_dir = Path(output_dir).resolve()
 
-    def generate_daily_brief(self, brief_date: date) -> DailyCioBrief:
+    def generate_daily_brief(
+        self,
+        brief_date: date,
+        *,
+        as_of: datetime | None = None,
+        signal_ids: tuple[str, ...] | None = None,
+        plan_ids: tuple[str, ...] | None = None,
+        warnings: tuple[str, ...] = (),
+    ) -> DailyCioBrief:
         if type(brief_date) is not date:
             raise TypeError("简报日期必须为 date")
         markdown = self._output_dir / f"{brief_date.isoformat()}_Daily_CIO_Brief.md"
@@ -48,11 +56,12 @@ class BriefService:
         try:
             self._db.begin()
             try:
-                portfolio, risk = portfolio_and_risk(self._db, brief_date)
-                plans, drafts = trade_plans_and_drafts(self._db, brief_date)
+                portfolio, risk = portfolio_and_risk(self._db, brief_date, as_of)
+                risk.key_risks = list(dict.fromkeys([*risk.key_risks, *warnings]))
+                plans, drafts = trade_plans_and_drafts(self._db, brief_date, plan_ids)
                 brief = build_daily_brief(
                     brief_date,
-                    market=market_summary(self._db, brief_date),
+                    market=market_summary(self._db, brief_date, signal_ids),
                     portfolio=portfolio,
                     risk=risk,
                     plans=plans,

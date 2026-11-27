@@ -6,12 +6,24 @@ from duckdb import DuckDBPyConnection
 from .hourly_gate import APP_TIMEZONE
 
 
-def completed_sessions(sessions: tuple[date, ...], as_of: datetime) -> tuple[date, ...]:
+def completed_sessions(
+    sessions: tuple[date, ...], as_of: datetime, session_close: datetime | None = None
+) -> tuple[date, ...]:
     local = as_of.astimezone(APP_TIMEZONE)
+    if (
+        session_close is not None
+        and session_close.astimezone(APP_TIMEZONE).date() != local.date()
+    ):
+        raise ValueError("收盘时刻与芝加哥业务日期不一致。")
+    closed = (
+        as_of >= session_close
+        if session_close is not None
+        else local.time() >= time(15)
+    )
     return tuple(
         day
         for day in sessions
-        if day < local.date() or (day == local.date() and local.time() >= time(15))
+        if day < local.date() or (day == local.date() and closed)
     )
 
 

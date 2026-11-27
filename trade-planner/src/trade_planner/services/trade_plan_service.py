@@ -99,7 +99,9 @@ class TradePlanService:
             else None
         )
         local = request.as_of.astimezone(APP_TIMEZONE)
-        completed = completed_sessions(request.trading_sessions, request.as_of)
+        completed = completed_sessions(
+            request.trading_sessions, request.as_of, request.session_close
+        )
         current = bool(completed and signal.trade_date == completed[-1])
         earnings = tuple(
             day
@@ -207,6 +209,9 @@ def _make_plan(context: PlanningContext, decision: Decision) -> TradePlan:
             request.portfolio.model_dump(mode="json") if request.portfolio else None
         ),
         "trading_sessions": [day.isoformat() for day in request.trading_sessions],
+        "session_close": (
+            request.session_close.isoformat() if request.session_close else None
+        ),
         "portfolio_observed_at": (
             request.portfolio.observed_at.isoformat() if request.portfolio else None
         ),

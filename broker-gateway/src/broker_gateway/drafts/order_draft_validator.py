@@ -13,6 +13,7 @@ from shared.enums import (
     TradePlanStatus,
 )
 from shared.models import DailySignal, IntradaySignal, OrderSnapshot, TradePlan
+from shared.models._types import UtcDatetime
 from trade_planner.planners.base import (
     AccountPolicy,
     EntryPrices,
@@ -62,6 +63,7 @@ class _Evidence(BaseModel):
     intraday_signal: IntradaySignal | None = None
     portfolio_state: PortfolioState | None = None
     trading_sessions: tuple[date, ...] = ()
+    session_close: UtcDatetime | None = None
     earnings_checked_through: date | None = None
 
 
@@ -292,7 +294,7 @@ class OrderDraftValidator:
     def _check_entry_source(
         self, plan: TradePlan, refs: _Evidence, as_of: datetime
     ) -> None:
-        completed = completed_sessions(refs.trading_sessions, as_of)
+        completed = completed_sessions(refs.trading_sessions, as_of, refs.session_close)
         columns = tuple(DailySignal.model_fields)
         row = self._db.execute(
             f"SELECT {', '.join('s.' + col for col in columns)} FROM daily_signal s "
@@ -356,7 +358,9 @@ class OrderDraftValidator:
         as_of: datetime,
     ) -> None:
         if plan.action is Action.EXIT:
-            days = completed_sessions(refs.trading_sessions, as_of)[-2:]
+            days = completed_sessions(refs.trading_sessions, as_of, refs.session_close)[
+                -2:
+            ]
             if (
                 "two_completed_closes_below_ma200" not in plan.exit_trigger
                 or not two_closes_below_ma200(self._db, plan.symbol, days)

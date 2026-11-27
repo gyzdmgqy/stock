@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from math import isfinite
 
@@ -14,17 +14,20 @@ from shared.models.brief import (
 )
 
 
-def market_summary(db: DuckDBPyConnection, day: date) -> MarketSummary:
+def market_summary(
+    db: DuckDBPyConnection, day: date, signal_ids: tuple[str, ...] | None = None
+) -> MarketSummary:
     rows = db.execute(
         """
         SELECT symbol, market_regime, confidence, reason FROM daily_signal
         WHERE trade_date = ? AND symbol IN ('SPY', 'QQQ')
+          AND (? OR signal_id IN (SELECT unnest(CAST(? AS VARCHAR[]))))
         QUALIFY row_number() OVER (
             PARTITION BY symbol ORDER BY created_at DESC NULLS LAST, signal_id DESC
         ) = 1
         ORDER BY symbol = 'SPY' DESC
         """,
-        [day],
+        [day, signal_ids is None, list(signal_ids or ())],
     ).fetchall()
     signals = {
         symbol: (regime, confidence, reason)
@@ -41,7 +44,7 @@ def market_summary(db: DuckDBPyConnection, day: date) -> MarketSummary:
 
 
 def portfolio_and_risk(
-    db: DuckDBPyConnection, day: date
+    db: DuckDBPyConnection, day: date, as_of: datetime | None = None
 ) -> tuple[PortfolioSummary, RiskSummary]:
     accounts = db.execute(
         "SELECT account_id, account_role, base_currency FROM portfolio_account "
@@ -52,11 +55,12 @@ def portfolio_and_risk(
         SELECT account_id, TRY_CAST(total_market_value AS DECIMAL(20, 6)),
             portfolio_risk_score, notes
         FROM portfolio_risk_snapshot WHERE snapshot_date = ?
+        AND (CAST(? AS TIMESTAMPTZ) IS NULL OR created_at <= ?)
         QUALIFY row_number() OVER (
             PARTITION BY account_id ORDER BY created_at DESC NULLS LAST, snapshot_id DESC
         ) = 1
         """,
-        [day],
+        [day, as_of, as_of],
     ).fetchall()
     snapshots = {
         account: (value, score, notes) for account, value, score, notes in recorded
@@ -114,13 +118,13 @@ def portfolio_and_risk(
             total_value=total,
             core_passive_value=role_values[AccountRole.CORE_PASSIVE],
             active_trading_value=role_values[AccountRole.ACTIVE_TRADING],
-            key_positions=_positions(db, day),
+            key_positions=_positions(db, day, as_of),
         ),
         RiskSummary(key_risks=risks),
     )
 
 
-def _positions(db: DuckDBPyConnection, day: date) -> list[dict]:
+def _positions(db: DuckDBPyConnection, day: date, as_of: datetime | None) -> list[dict]:
     rows = db.execute(
         """
         WITH latest AS (
@@ -129,6 +133,7 @@ def _positions(db: DuckDBPyConnection, day: date) -> list[dict]:
             FROM portfolio_position_snapshot AS p
             JOIN portfolio_account AS a ON p.account_id = a.account_id
             WHERE p.snapshot_date = ? AND a.is_active AND a.base_currency = 'USD'
+            AND (CAST(? AS TIMESTAMPTZ) IS NULL OR p.observed_at <= ?)
             QUALIFY row_number() OVER (
                 PARTITION BY p.account_id, p.symbol
                 ORDER BY p.observed_at DESC NULLS LAST,
@@ -138,7 +143,7 @@ def _positions(db: DuckDBPyConnection, day: date) -> list[dict]:
         SELECT account_id, symbol, value FROM latest WHERE quantity > 0
         ORDER BY value DESC NULLS LAST, account_id, symbol LIMIT 5
         """,
-        [day],
+        [day, as_of, as_of],
     ).fetchall()
     return [
         {
@@ -151,7 +156,7 @@ def _positions(db: DuckDBPyConnection, day: date) -> list[dict]:
 
 
 def trade_plans_and_drafts(
-    db: DuckDBPyConnection, day: date
+    db: DuckDBPyConnection, day: date, plan_ids: tuple[str, ...] | None = None
 ) -> tuple[list[TradePlanSummary], list[OrderDraftSummary]]:
     plans = [
         TradePlanSummary(
@@ -166,13 +171,14 @@ def trade_plans_and_drafts(
             """
             SELECT plan_id, symbol, action, confidence, account_id, status
             FROM trade_plan WHERE plan_date = ?
+            AND (? OR plan_id IN (SELECT unnest(CAST(? AS VARCHAR[]))))
             QUALIFY row_number() OVER (
                 PARTITION BY account_id, symbol
                 ORDER BY created_at DESC NULLS LAST, plan_id DESC
             ) = 1
             ORDER BY account_id, symbol
             """,
-            [day],
+            [day, plan_ids is None, list(plan_ids or ())],
         ).fetchall()
     ]
     if not plans:

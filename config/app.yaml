@@ -3,6 +3,7 @@ app:
   environment: local
   timezone: America/Chicago
   base_currency: USD
+  market_history_sessions: 220
   report_format:
     - markdown
     - json

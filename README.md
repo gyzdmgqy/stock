@@ -1,6 +1,6 @@
 # Personal CIO System
 
-个人投资决策辅助系统。项目采用本地优先的 Python 单仓库，由行情服务、分析引擎、交易规划、券商网关、CIO 简报和投资日志组成。当前已实现仓库基础、共享模型和 DuckDB 初始化。
+个人投资决策辅助系统。项目采用本地优先的 Python 单仓库，由行情服务、分析引擎、交易规划、券商网关、CIO 简报和投资日志组成。Phase 10 已串联日线到简报和日志的本地流程；券商数据仍从 CSV 导入，不连接券商 API 或提交订单。
 
 ## 本地启动
 
@@ -29,6 +29,8 @@ python3 -m venv .venv
 数据库默认位于 `data/db/personal_cio.duckdb`。可使用 `init_db.py --db-path <路径>`
 指定其他文件。初始化会执行尚未应用的迁移、补齐缺失的种子记录，并保留已有记录。
 数据库测试使用临时文件。
+
+收盘后运行 `python scripts/run_daily_pipeline.py`。默认只补齐本地缺失的日线；加 `--offline` 可完全离线。持仓、现金导入及本地人工确认的用法见[每日流程部署说明](docs/09_Deployment_Guide.md#12-daily-local-run)。
 
 ## 开发约定
 
